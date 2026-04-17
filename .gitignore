@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+frontend/dist/
+backend/.next/
+backend/out/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+npm-debug.log*
+*.tgz
+.vercel
