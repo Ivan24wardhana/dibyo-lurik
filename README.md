@@ -72,7 +72,7 @@ npm install
 Buat file `frontend/.env.local` dan isi:
 ```env
 VITE_SUPABASE_URL=https://jflgkfxxhyvwrjfvxzlh.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpmbGdrZnh4aHl2d3JqZnZ4emxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMDMwMjIsImV4cCI6MjA5MDg3OTAyMn0.gl0ZETSyMe5kECvjDGXGVB2q-WNsCNffjGvJUM4S7oc
+VITE_SUPABASE_ANON_KEY=your_anon_key_here
 VITE_API_URL=http://localhost:3000
 ```
 Jalankan frontend:
@@ -89,8 +89,8 @@ npm install
 Buat file `backend/.env.local` dan isi:
 ```env
 SUPABASE_URL=https://jflgkfxxhyvwrjfvxzlh.supabase.co
-SUPABASE_ANON_KEY= eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpmbGdrZnh4aHl2d3JqZnZ4emxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMDMwMjIsImV4cCI6MjA5MDg3OTAyMn0.gl0ZETSyMe5kECvjDGXGVB2q-WNsCNffjGvJUM4S7oc
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpmbGdrZnh4aHl2d3JqZnZ4emxoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTMwMzAyMiwiZXhwIjoyMDkwODc5MDIyfQ.3KJxZBOuMpApPgldq51sE2w9A_iGVWKwzZD1ZawJxEE
+SUPABASE_ANON_KEY=your_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 FRONTEND_URL=http://localhost:5173
 ```
 Jalankan backend:
