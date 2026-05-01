@@ -125,7 +125,7 @@ Backend berjalan di `http://localhost:3000`
 
 ## Tim Pengembang
 
-- **Nama** — Web Developer
+- **Ivan Kusuma Wardhana** — Sistem Informasi — 242103008
 
 ## Lisensi
 
