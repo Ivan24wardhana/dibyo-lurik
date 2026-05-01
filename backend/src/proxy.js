@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-export function middleware(request) {
+export function proxy(request) {
   const response = NextResponse.next()
   const origin = process.env.FRONTEND_URL || 'http://localhost:5173'
   response.headers.set('Access-Control-Allow-Origin', origin)

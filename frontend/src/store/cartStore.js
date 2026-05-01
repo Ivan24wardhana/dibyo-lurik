@@ -2,13 +2,50 @@ import { create } from 'zustand'
 
 const useCartStore = create((set, get) => ({
   items: [],
-  addItem: (item) => set((s) => ({ items: [...s.items, { ...item, id: Date.now() }] })),
-  removeItem: (id) => set((s) => ({ items: s.items.filter((i) => i.id !== id) })),
-  updateItem: (id, u) => set((s) => ({ items: s.items.map((i) => i.id === id ? { ...i, ...u } : i) })),
-  getSubtotal: () => get().items.reduce((t, i) => t + i.subtotal, 0),
-  getTotal: (diskon = 0) => { const s = get().getSubtotal(); return s - s * (diskon / 100) },
-  clearCart: () => set({ items: [] }),
-  getItemCount: () => get().items.length,
+
+  // Tambah item ke keranjang
+  addItem: (item) => {
+    set((state) => ({
+      items: [...state.items, { ...item, id: Date.now() }],
+    }))
+  },
+
+  // Hapus item dari keranjang
+  removeItem: (itemId) => {
+    set((state) => ({
+      items: state.items.filter((item) => item.id !== itemId),
+    }))
+  },
+
+  // Update item di keranjang
+  updateItem: (itemId, updates) => {
+    set((state) => ({
+      items: state.items.map((item) =>
+        item.id === itemId ? { ...item, ...updates } : item
+      ),
+    }))
+  },
+
+  // Hitung subtotal semua item
+  getSubtotal: () => {
+    return get().items.reduce((total, item) => total + item.subtotal, 0)
+  },
+
+  // Hitung total setelah diskon
+  getTotal: (diskon = 0) => {
+    const subtotal = get().getSubtotal()
+    return subtotal - subtotal * (diskon / 100)
+  },
+
+  // Kosongkan keranjang
+  clearCart: () => {
+    set({ items: [] })
+  },
+
+  // Hitung jumlah item
+  getItemCount: () => {
+    return get().items.length
+  },
 }))
 
 export default useCartStore

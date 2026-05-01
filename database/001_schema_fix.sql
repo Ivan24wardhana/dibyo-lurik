@@ -1,15 +1,26 @@
 -- ============================================================
 -- DIBYO LURIK - SISTEM MANAJEMEN INTERNAL TOKO
--- Database Schema v4 untuk Supabase (PostgreSQL)
+-- Database Schema v6 untuk Supabase (PostgreSQL)
 -- ============================================================
--- Total: 12 tabel + triggers + functions + RLS policies + views
+-- Total: 12 tabel + functions + triggers + RLS policies + 4 views
 -- ============================================================
--- CHANGELOG v4 (dari v3):
---   - orders: tambah diskon (%)
---   - pre_order_reguler: tambah status_pembayaran, total_dp, diskon
---   - pre_order_custom: tambah status_pembayaran, total_dp, diskon
---   - item_pre_order_reguler: tambah jumlah (qty)
---   - subtotal POR item = panjang * jumlah * harga_per_meter
+-- CHANGELOG v6 (vs v5):
+--   - daftar_harga: struktur baru (jenis_pewarna, motif_id, lebar)
+--     menggantikan struktur lama (kategori_id, lebar)
+--   - Tambah function get_harga_per_meter() untuk lookup harga
+--   - Trigger update_gulungan_after_order: TIDAK potong stok di sini
+--     (di-handle eksplisit di backend untuk transaksi multi-item)
+--
+-- CARA PAKAI (DB BARU / RESET TOTAL):
+--   1. Buat project Supabase baru di supabase.com
+--   2. Buka Dashboard → SQL Editor → New Query
+--   3. Paste SELURUH file ini → klik RUN
+--   4. Buat 3 user di Authentication → Users (lihat bagian SEED PROFILES)
+--   5. Copy UID 3 user, paste ke INSERT profiles di akhir file
+--   6. Run INSERT profiles
+--   7. Database siap dipakai!
+--
+-- TIDAK ADA register: akun fix 3 role (owner, kepala_produksi, customer_service)
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -18,17 +29,17 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================================
 -- 1. PROFILES
 -- ============================================================
--- Login: username + password (tanpa email)
+-- Login: username + password (email di-display di flow lupa password)
 -- Supabase Auth handle password (TIDAK disimpan di tabel ini)
--- Di Supabase Auth: email auto-generate → username@dibyo.local
--- Yang bisa daftarkan akun: hanya owner
--- Fitur: register, login, lupa password, edit profil
+-- TIDAK ada fitur register — akun fix 3 role, di-seed manual
+-- Fitur: login, lupa password (ubah username/password by role), edit profil
 -- ============================================================
 CREATE TABLE profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username VARCHAR(100) NOT NULL UNIQUE,
+  email VARCHAR(255) UNIQUE,
   nama VARCHAR(255) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('owner', 'kepala_produksi', 'customer_service')),
+  role VARCHAR(20) NOT NULL UNIQUE CHECK (role IN ('owner', 'kepala_produksi', 'customer_service')),
   avatar_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -88,7 +99,7 @@ CREATE TABLE rak (
 -- PRICELIST:
 --   Sintetis 70cm  = 38.500  |  Alami 70cm  = 46.500
 --   Sintetis 110cm = 57.500  |  Alami 110cm = 67.500
---   Blok Lurik Sintetis 110cm = 60.000
+--   Blok Lurik Sintetis 110cm = 60.000 (EXCEPTION)
 -- ============================================================
 CREATE TABLE daftar_harga (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -100,6 +111,8 @@ CREATE TABLE daftar_harga (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Unique: 1 kombinasi (jenis_pewarna + motif_id + lebar) cuma 1 harga
+-- COALESCE supaya NULL motif_id di-treat sebagai "general rule" yang juga unique
 CREATE UNIQUE INDEX idx_daftar_harga_unique
   ON daftar_harga (jenis_pewarna, COALESCE(motif_id, '00000000-0000-0000-0000-000000000000'::UUID), lebar);
 
@@ -108,14 +121,14 @@ CREATE UNIQUE INDEX idx_daftar_harga_unique
 -- 6. PRODUK
 -- ============================================================
 -- gambar_url selalu di atas (prioritas utama)
--- kode_produk auto-generate: RAK + KAT_INITIAL + DDMMYY + MOTIF_INITIAL + DETIK
+-- kode_produk auto-generate via trigger: RAK + KAT_INITIAL + DDMMYY + MOTIF_INITIAL + DETIK
 -- stok = jumlah gulungan aktif (auto-update via trigger)
 -- terjual = total meter terjual (auto-update via trigger)
 -- status = ready/sold (auto berdasarkan stok)
 -- jenis_pewarna ada di sini (gulungan inherit, tidak duplikasi)
 --
 -- Tampilan: card 4 kolom
--- Di card ada tombol: beli, pre order reguler, detail produk
+-- Action di card: beli, pre order reguler, detail produk
 -- ============================================================
 CREATE TABLE produk (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -143,10 +156,11 @@ CREATE INDEX idx_produk_terjual ON produk(terjual DESC);
 -- ============================================================
 -- 7. GULUNGAN
 -- ============================================================
+-- Setiap produk bisa punya 1 atau lebih gulungan (stok fisik)
 -- nomor_gulungan: urutan dalam produk (1, 2, 3, ...)
--- jenis_pewarna TIDAK disimpan di sini (inherit dari produk)
--- lebar & harga_per_meter: snapshot dari daftar_harga saat dibuat
--- panjang_total: panjang awal saat gulungan ditambahkan
+-- jenis_pewarna TIDAK disimpan (inherit dari produk)
+-- harga_per_meter: snapshot dari daftar_harga saat dibuat
+-- panjang_total: panjang awal saat ditambahkan
 -- panjang_sisa: sisa setelah dipotong order
 -- is_active: FALSE jika panjang_sisa <= 0
 --
@@ -180,7 +194,7 @@ CREATE INDEX idx_gulungan_active ON gulungan(is_active);
 -- nomor_order auto-generate: ORD-YYYYMMDD-XXX
 -- tanpa data pelanggan (langsung jual di toko)
 -- metode_pembayaran: cash / transfer (dropdown)
--- diskon: persentase (misal input 20 = 20%)
+-- diskon: persentase (0-100)
 --
 -- Digunakan: riwayat order, keranjang, grafik, laporan
 -- ============================================================
@@ -230,19 +244,17 @@ CREATE INDEX idx_item_order_gulungan ON item_order(gulungan_id);
 -- ============================================================
 -- nomor_po auto-generate: POR-YYYYMMDD-XXX
 --
--- ALUR:
---   1. User klik tombol "Tambah PO Reguler"
+-- ALUR INPUT:
+--   1. User klik "Tambah PO Reguler"
 --   2. Muncul form: nama_customer, kontak, alamat (opsional)
---   3. Di dalam form ada tombol "Tambah Pre Order"
---   4. Diarahkan ke menu Order (card produk + tombol PO reguler)
---   5. Pilih produk → masuk ke list di form
---   6. Di list: pilih lebar (70/110), input panjang, input jumlah
---   7. Bisa ulangi step 3-6 untuk tambah item lagi
---   8. Isi metode pembayaran, status pembayaran (DP/Lunas), total DP, diskon
---   9. Submit
+--   3. Tombol "Tambah Pre Order" → ke menu Order pilih produk
+--   4. Item masuk ke list di form (lebar, panjang, jumlah)
+--   5. Bisa tambah item lagi (loop)
+--   6. Isi metode_pembayaran, status_pembayaran (DP/Lunas), total_dp, diskon
+--   7. Submit
 --
 -- status: belum_diproses / sedang_diproses / selesai
--- metode_pembayaran: cash / transfer (dropdown)
+-- metode_pembayaran: cash / transfer
 -- status_pembayaran: dp / lunas
 -- ============================================================
 CREATE TABLE pre_order_reguler (
@@ -281,7 +293,7 @@ CREATE INDEX idx_por_created_by ON pre_order_reguler(created_by);
 -- lebar: 70 / 110 (dipilih saat input)
 -- panjang: panjang per item (meter)
 -- jumlah: qty item (misal 3 gulungan)
--- harga_per_meter: otomatis dari daftar_harga
+-- harga_per_meter: dari daftar_harga (auto via lookup)
 -- subtotal: panjang * jumlah * harga_per_meter
 -- ============================================================
 CREATE TABLE item_pre_order_reguler (
@@ -304,13 +316,9 @@ CREATE INDEX idx_ipor_produk ON item_pre_order_reguler(produk_id);
 -- 12. PRE ORDER CUSTOM (Flat form / tanpa items)
 -- ============================================================
 -- nomor_po auto-generate: POC-YYYYMMDD-XXX
--- Form biasa (tambah langsung semua field)
+-- Form biasa (tambah langsung semua field, tanpa multi-item)
 -- total_harga: input manual (karena desain custom)
--- gambar_custom: upload desain dari customer
--- metode_pembayaran: cash / transfer (dropdown)
--- status_pembayaran: dp / lunas
---
--- Digunakan: riwayat PO custom, grafik, laporan
+-- gambar_custom: upload desain dari customer (opsional)
 -- ============================================================
 CREATE TABLE pre_order_custom (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -346,7 +354,6 @@ CREATE INDEX idx_poc_created_by ON pre_order_custom(created_by);
 -- ============================================================
 
 -- A. Auto-generate nomor order: ORD-YYYYMMDD-XXX
--- ============================================================
 CREATE OR REPLACE FUNCTION generate_nomor_order()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -366,7 +373,6 @@ CREATE TRIGGER trg_nomor_order
   FOR EACH ROW EXECUTE FUNCTION generate_nomor_order();
 
 -- B. Auto-generate nomor PO reguler: POR-YYYYMMDD-XXX
--- ============================================================
 CREATE OR REPLACE FUNCTION generate_nomor_por()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -386,7 +392,6 @@ CREATE TRIGGER trg_nomor_por
   FOR EACH ROW EXECUTE FUNCTION generate_nomor_por();
 
 -- C. Auto-generate nomor PO custom: POC-YYYYMMDD-XXX
--- ============================================================
 CREATE OR REPLACE FUNCTION generate_nomor_poc()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -406,10 +411,8 @@ CREATE TRIGGER trg_nomor_poc
   FOR EACH ROW EXECUTE FUNCTION generate_nomor_poc();
 
 -- D. Auto-generate kode_produk
--- ============================================================
 -- Format: RAK + KAT_INITIAL + DDMMYY + MOTIF_INITIAL + DETIK
 -- Contoh: GA051226G20
--- ============================================================
 CREATE OR REPLACE FUNCTION generate_kode_produk()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -436,7 +439,6 @@ CREATE TRIGGER trg_kode_produk
   EXECUTE FUNCTION generate_kode_produk();
 
 -- E. Update gulungan setelah order (potong panjang)
--- ============================================================
 CREATE OR REPLACE FUNCTION update_gulungan_after_order()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -458,27 +460,38 @@ CREATE TRIGGER trg_potong_gulungan
   FOR EACH ROW EXECUTE FUNCTION update_gulungan_after_order();
 
 -- F. Auto-update stok & status produk
--- ============================================================
 -- stok = jumlah gulungan aktif
 -- status = sold jika stok = 0
--- ============================================================
 CREATE OR REPLACE FUNCTION update_produk_stok()
 RETURNS TRIGGER AS $$
 DECLARE
+  v_produk_id UUID;
   v_stok INTEGER;
 BEGIN
+  -- Tentukan produk_id yang dipengaruhi
+  IF TG_OP = 'DELETE' THEN
+    v_produk_id := OLD.produk_id;
+  ELSE
+    v_produk_id := NEW.produk_id;
+  END IF;
+
+  -- Hitung gulungan aktif
   SELECT COUNT(*) INTO v_stok
   FROM gulungan
-  WHERE produk_id = NEW.produk_id AND is_active = TRUE;
+  WHERE produk_id = v_produk_id AND is_active = TRUE;
 
   UPDATE produk
   SET
     stok = v_stok,
     status = CASE WHEN v_stok = 0 THEN 'sold' ELSE 'ready' END,
     updated_at = NOW()
-  WHERE id = NEW.produk_id;
+  WHERE id = v_produk_id;
 
-  RETURN NEW;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -487,9 +500,6 @@ CREATE TRIGGER trg_update_stok
   FOR EACH ROW EXECUTE FUNCTION update_produk_stok();
 
 -- G. Auto-update produk.terjual setelah order
--- ============================================================
--- terjual = total meter yang sudah terjual dari semua order
--- ============================================================
 CREATE OR REPLACE FUNCTION update_produk_terjual()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -517,7 +527,6 @@ CREATE TRIGGER trg_update_terjual
   FOR EACH ROW EXECUTE FUNCTION update_produk_terjual();
 
 -- H. Auto-update updated_at
--- ============================================================
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -539,6 +548,15 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON pre_order_custom FOR EACH ROW EXE
 
 -- ============================================================
 -- HELPER FUNCTION: Get harga per meter
+-- ============================================================
+-- Logic lookup harga:
+--   1. Cari spesifik (jenis_pewarna + motif_id + lebar) dulu
+--   2. Kalau tidak ada, fallback ke umum (motif_id NULL)
+--   3. Kalau tidak ada juga, return 0
+--
+-- Contoh:
+--   get_harga_per_meter('sintetis', '<uuid Blok Lurik>', 110) → 60.000
+--   get_harga_per_meter('sintetis', '<uuid Lurik Salur>', 110) → 57.500 (fallback)
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_harga_per_meter(
   p_jenis_pewarna VARCHAR,
@@ -594,12 +612,12 @@ RETURNS TEXT AS $$
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 -- PROFILES
+-- select: semua user login boleh baca (buat dropdown, profil, dll)
+-- update: user hanya boleh update dirinya sendiri
+-- (tidak ada INSERT/DELETE policy — akun fix 3, di-seed manual,
+--  operasi lupa-password dilakukan via service_role_key dari backend)
 CREATE POLICY "profiles_select" ON profiles FOR SELECT TO authenticated USING (true);
 CREATE POLICY "profiles_update_self" ON profiles FOR UPDATE TO authenticated USING (id = auth.uid());
-CREATE POLICY "profiles_insert_owner" ON profiles FOR INSERT TO authenticated
-  WITH CHECK (get_user_role() = 'owner');
-CREATE POLICY "profiles_delete_owner" ON profiles FOR DELETE TO authenticated
-  USING (get_user_role() = 'owner' AND id != auth.uid());
 
 -- MASTER DATA
 CREATE POLICY "kategori_select" ON kategori FOR SELECT TO authenticated USING (true);
@@ -650,7 +668,7 @@ CREATE POLICY "poc_update" ON pre_order_custom FOR UPDATE TO authenticated
 
 
 -- ============================================================
--- SEED DATA
+-- SEED DATA: Master data awal
 -- ============================================================
 
 INSERT INTO kategori (id, nama_kategori) VALUES
@@ -668,6 +686,8 @@ INSERT INTO rak (id, nama_rak) VALUES
   ('c1000000-0000-0000-0000-000000000002', 'B'),
   ('c1000000-0000-0000-0000-000000000003', 'C');
 
+-- PRICELIST
+-- 4 row umum (motif_id NULL) + 1 row exception (Blok Lurik Sintetis 110)
 INSERT INTO daftar_harga (jenis_pewarna, motif_id, lebar, harga_per_meter) VALUES
   ('sintetis', NULL, 70, 38500.00),
   ('sintetis', NULL, 110, 57500.00),
@@ -677,10 +697,32 @@ INSERT INTO daftar_harga (jenis_pewarna, motif_id, lebar, harga_per_meter) VALUE
 
 
 -- ============================================================
+-- SEED PROFILES — JALANKAN MANUAL SETELAH BUAT USER DI SUPABASE AUTH
+-- ============================================================
+-- profiles.id HARUS sama dengan auth.users.id (Foreign Key)
+--
+-- LANGKAH:
+--   1) Supabase Dashboard → Authentication → Users → "Add user"
+--      Buat 3 user:
+--        - owner@dibyo.com             (password: owner123)
+--        - kepalaproduksi@dibyo.com    (password: kepala123)
+--        - cs@dibyo.com                (password: cs123)
+--   2) Centang "Auto Confirm User" supaya tidak perlu verifikasi email
+--   3) Copy UID tiap user (kolom pertama di table Users)
+--   4) Replace 3 placeholder di bawah dengan UID yang sebenarnya
+--   5) Lepas comment (hapus -- di awal baris) lalu jalankan
+-- ============================================================
+-- INSERT INTO profiles (id, username, email, nama, role) VALUES
+--   ('PASTE_UID_OWNER_DISINI',           'owner',          'owner@dibyo.com',          'Owner Dibyo Lurik',           'owner'),
+--   ('PASTE_UID_KEPALA_PRODUKSI_DISINI', 'kepalaproduksi', 'kepalaproduksi@dibyo.com', 'Kepala Produksi Dibyo Lurik', 'kepala_produksi'),
+--   ('PASTE_UID_CS_DISINI',              'cs',             'cs@dibyo.com',             'Customer Service Dibyo Lurik','customer_service');
+
+
+-- ============================================================
 -- VIEWS untuk Dashboard, Grafik & Laporan
 -- ============================================================
 
--- Dashboard: summary counts
+-- Dashboard: summary counts (4 angka di kartu atas)
 CREATE OR REPLACE VIEW v_dashboard_summary AS
 SELECT
   (SELECT COUNT(*) FROM produk WHERE status = 'ready') AS produk_tersedia,
@@ -690,7 +732,7 @@ SELECT
   (SELECT COUNT(*) FROM pre_order_reguler WHERE status = 'belum_diproses')
     + (SELECT COUNT(*) FROM pre_order_custom WHERE status = 'belum_diproses') AS belum_diproses;
 
--- Dashboard: produk terlaris (dari field terjual)
+-- Dashboard: produk terlaris (sorted by terjual DESC)
 CREATE OR REPLACE VIEW v_produk_terlaris AS
 SELECT
   p.id,
@@ -709,7 +751,7 @@ JOIN motif m ON m.id = p.motif_id
 JOIN rak r ON r.id = p.rak_id
 ORDER BY p.terjual DESC;
 
--- Rekap stok gulungan per lebar
+-- Rekap stok gulungan per lebar (untuk halaman Rekap Stok Gulungan)
 CREATE OR REPLACE VIEW v_rekap_gulungan AS
 SELECT
   g.lebar,
@@ -721,7 +763,7 @@ FROM gulungan g
 GROUP BY g.lebar
 ORDER BY g.lebar;
 
--- Grafik pendapatan bulanan (3 line: order, PO reguler, PO custom)
+-- Grafik pendapatan bulanan (gabung order + PO reguler selesai + PO custom selesai)
 CREATE OR REPLACE VIEW v_pendapatan_bulanan AS
 SELECT
   tahun_bulan,
@@ -742,3 +784,16 @@ FROM (
 ) combined
 GROUP BY tahun_bulan, sumber
 ORDER BY tahun_bulan, sumber;
+
+
+-- ============================================================
+-- SCHEMA SELESAI ✅
+-- ============================================================
+-- Total objects:
+--   - 12 tabel
+--   - 8 functions (5 trigger + 1 lookup harga + 1 updated_at + 1 get_user_role)
+--   - 14 triggers
+--   - 28 RLS policies
+--   - 4 views
+--   - 13 seed records (2 kategori + 4 motif + 3 rak + 5 daftar_harga -- profiles manual)
+-- ============================================================

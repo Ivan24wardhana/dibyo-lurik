@@ -1,12 +1,44 @@
-﻿/**
- * EmptyState
- * Tampilan data kosong
- */
-export default function EmptyState() {
+// =====================================================
+// EmptyState.jsx
+// Komponen untuk tampilan "data kosong" / "no results".
+//
+// Cara pakai:
+//   <EmptyState message="Belum ada produk" />
+//
+//   <EmptyState
+//     icon={Package}
+//     title="Belum ada produk"
+//     message="Tambahkan produk pertama untuk memulai"
+//     action={
+//       <Button onClick={...}>Tambah Produk</Button>
+//     }
+//   />
+// =====================================================
+
+import { Inbox } from 'lucide-react'
+
+export default function EmptyState({
+  icon: Icon = Inbox,
+  title,
+  message = 'Belum ada data',
+  action,
+  className = '',
+}) {
   return (
-    <div className="p-4">
-      <h2 className="text-lg font-semibold text-gray-700">EmptyState</h2>
-      <p className="text-sm text-gray-500">Tampilan data kosong</p>
+    <div
+      className={`flex flex-col items-center justify-center py-16 px-4 text-center ${className}`}
+    >
+      <div className="w-16 h-16 rounded-full bg-[#a47352]/10 flex items-center justify-center mb-4">
+        <Icon className="w-8 h-8 text-[#a47352]" strokeWidth={1.5} />
+      </div>
+
+      {title && (
+        <h3 className="text-lg font-semibold text-gray-900 mb-1">{title}</h3>
+      )}
+
+      <p className="text-sm text-gray-500 max-w-md">{message}</p>
+
+      {action && <div className="mt-6">{action}</div>}
     </div>
   )
 }

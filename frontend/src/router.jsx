@@ -1,4 +1,5 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
+import useAuthStore from './store/authStore'
 
 // Layouts
 import MainLayout from './components/layout/MainLayout'
@@ -6,7 +7,6 @@ import AuthLayout from './components/layout/AuthLayout'
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage'
-import RegisterPage from './pages/auth/RegisterPage'
 import LupaPasswordPage from './pages/auth/LupaPasswordPage'
 
 // Main Pages
@@ -33,59 +33,92 @@ import RekapGulunganPage from './pages/rekap/RekapGulunganPage'
 import LaporanPage from './pages/laporan/LaporanPage'
 import ProfilPage from './pages/profil/ProfilPage'
 
+/**
+ * ProtectedRoute
+ * Bungkus route yang butuh login. Kalau belum login, redirect ke /login.
+ */
+function ProtectedRoute() {
+  const user = useAuthStore((s) => s.user)
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+  return <Outlet />
+}
+
+/**
+ * PublicRoute
+ * Bungkus halaman login & lupa-password. Kalau sudah login, langsung ke /dashboard.
+ */
+function PublicRoute() {
+  const user = useAuthStore((s) => s.user)
+  if (user) {
+    return <Navigate to="/dashboard" replace />
+  }
+  return <Outlet />
+}
+
 const router = createBrowserRouter([
-  // Auth routes (tanpa sidebar)
+  // Auth routes - hanya bisa diakses kalau BELUM login
   {
-    element: <AuthLayout />,
+    element: <PublicRoute />,
     children: [
-      { path: '/login', element: <LoginPage /> },
-      { path: '/register', element: <RegisterPage /> },
-      { path: '/lupa-password', element: <LupaPasswordPage /> },
+      {
+        element: <AuthLayout />,
+        children: [
+          { path: '/login', element: <LoginPage /> },
+          { path: '/lupa-password', element: <LupaPasswordPage /> },
+        ],
+      },
     ],
   },
 
-  // Main routes (dengan sidebar + header)
+  // Main routes - hanya bisa diakses kalau SUDAH login
   {
-    element: <MainLayout />,
+    element: <ProtectedRoute />,
     children: [
-      { path: '/', element: <DashboardPage /> },
-      { path: '/dashboard', element: <DashboardPage /> },
+      {
+        element: <MainLayout />,
+        children: [
+          { path: '/', element: <Navigate to="/dashboard" replace /> },
+          { path: '/dashboard', element: <DashboardPage /> },
 
-      // Produk
-      { path: '/produk', element: <ProdukPage /> },
-      { path: '/produk/tambah', element: <TambahProdukPage /> },
-      { path: '/produk/edit/:id', element: <EditProdukPage /> },
-      { path: '/produk/:id', element: <DetailProdukPage /> },
+          // Produk
+          { path: '/produk', element: <ProdukPage /> },
+          { path: '/produk/tambah', element: <TambahProdukPage /> },
+          { path: '/produk/edit/:id', element: <EditProdukPage /> },
+          { path: '/produk/:id', element: <DetailProdukPage /> },
 
-      // Master Data (Kepala Produksi)
-      { path: '/kategori', element: <KategoriPage /> },
-      { path: '/motif', element: <MotifPage /> },
-      { path: '/rak', element: <RakPage /> },
-      { path: '/harga', element: <HargaPage /> },
+          // Master Data (Kepala Produksi)
+          { path: '/kategori', element: <KategoriPage /> },
+          { path: '/motif', element: <MotifPage /> },
+          { path: '/rak', element: <RakPage /> },
+          { path: '/harga', element: <HargaPage /> },
 
-      // Order (CS)
-      { path: '/order', element: <OrderPage /> },
-      { path: '/keranjang', element: <KeranjangPage /> },
+          // Order (CS)
+          { path: '/order', element: <OrderPage /> },
+          { path: '/keranjang', element: <KeranjangPage /> },
 
-      // Pre Order
-      { path: '/pre-order/reguler', element: <PreOrderRegulerPage /> },
-      { path: '/pre-order/reguler/tambah', element: <TambahPORPage /> },
-      { path: '/pre-order/reguler/:id', element: <DetailPORPage /> },
-      { path: '/pre-order/custom', element: <PreOrderCustomPage /> },
-      { path: '/pre-order/custom/tambah', element: <TambahPOCPage /> },
-      { path: '/pre-order/custom/:id', element: <DetailPOCPage /> },
+          // Pre Order
+          { path: '/pre-order/reguler', element: <PreOrderRegulerPage /> },
+          { path: '/pre-order/reguler/tambah', element: <TambahPORPage /> },
+          { path: '/pre-order/reguler/:id', element: <DetailPORPage /> },
+          { path: '/pre-order/custom', element: <PreOrderCustomPage /> },
+          { path: '/pre-order/custom/tambah', element: <TambahPOCPage /> },
+          { path: '/pre-order/custom/:id', element: <DetailPOCPage /> },
 
-      // Riwayat
-      { path: '/riwayat/order', element: <RiwayatOrderPage /> },
-      { path: '/riwayat/po-reguler', element: <RiwayatPreOrderPage /> },
-      { path: '/riwayat/po-custom', element: <RiwayatPreOrderPage /> },
+          // Riwayat
+          { path: '/riwayat/order', element: <RiwayatOrderPage /> },
+          { path: '/riwayat/po-reguler', element: <RiwayatPreOrderPage /> },
+          { path: '/riwayat/po-custom', element: <RiwayatPreOrderPage /> },
 
-      // Rekap & Laporan
-      { path: '/rekap', element: <RekapGulunganPage /> },
-      { path: '/laporan', element: <LaporanPage /> },
+          // Rekap & Laporan
+          { path: '/rekap', element: <RekapGulunganPage /> },
+          { path: '/laporan', element: <LaporanPage /> },
 
-      // Profil
-      { path: '/profil', element: <ProfilPage /> },
+          // Profil
+          { path: '/profil', element: <ProfilPage /> },
+        ],
+      },
     ],
   },
 ])
