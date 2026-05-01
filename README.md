@@ -60,7 +60,7 @@ C:\dibyo-lurik\
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/USERNAME/dibyo-lurik.git
+git clone https://github.com/ivan24wardhana/dibyo-lurik.git
 cd dibyo-lurik
 ```
 
