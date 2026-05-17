@@ -1,147 +1,190 @@
+// =====================================================
+// FilterProdukModal.jsx
+// Modal filter untuk halaman Produk.
+// Match Figma node 1001:658.
+//
+// Sections:
+//   - Kategori (fetch dari /api/kategori)
+//   - Pewarna (sintetis / alami)
+//   - Status Produk (ready / sold)
+//
+// Pattern: chip toggle - klik chip yang sama lagi = unselect
+//
+// Cara pakai:
+//   <FilterProdukModal
+//     open={filterOpen}
+//     onClose={() => setFilterOpen(false)}
+//     onApply={(filters) => setFilters(filters)}
+//     initialFilters={filters}
+//   />
+// =====================================================
+
 import { useState, useEffect } from 'react'
-import Modal from '../ui/Modal'
+import { Modal, Button } from '../ui'
+import api from '../../lib/api'
+import { JENIS_PEWARNA_LABEL, STATUS_PRODUK_LABEL } from '../../lib/constants'
 
-/**
- * FilterProdukModal
- * Popup filter produk. Chip-style multi-select untuk kategori,
- * single-select untuk status dan jenis pewarna.
- * Figma node 95:19 — diperbaiki dengan reset button + filter count.
- */
-export default function FilterProdukModal({ isOpen, onClose, onApply, initialFilters, kategoriList }) {
-  const [selectedKategori, setSelectedKategori] = useState([])
-  const [selectedStatus, setSelectedStatus] = useState(null)
-  const [selectedPewarna, setSelectedPewarna] = useState(null)
+export default function FilterProdukModal({
+  open,
+  onClose,
+  onApply,
+  initialFilters = {},
+}) {
+  // ===== State filter (local, baru commit ke parent saat klik Terapkan) =====
+  const [filters, setFilters] = useState({
+    kategori_id: '',
+    jenis_pewarna: '',
+    status: '',
+  })
 
+  // ===== List kategori dari API =====
+  const [kategoriList, setKategoriList] = useState([])
+  const [loadingKategori, setLoadingKategori] = useState(false)
+
+  // Sync initialFilters → local state saat modal open
   useEffect(() => {
-    if (isOpen && initialFilters) {
-      setSelectedKategori(initialFilters.kategori || [])
-      setSelectedStatus(initialFilters.status)
-      setSelectedPewarna(initialFilters.jenisPewarna)
+    if (open) {
+      setFilters({
+        kategori_id: initialFilters.kategori_id || '',
+        jenis_pewarna: initialFilters.jenis_pewarna || '',
+        status: initialFilters.status || '',
+      })
     }
-  }, [isOpen, initialFilters])
+  }, [open, initialFilters.kategori_id, initialFilters.jenis_pewarna, initialFilters.status])
 
-  const toggleKategori = (id) => {
-    setSelectedKategori((prev) =>
-      prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
-    )
+  // Fetch kategori list saat modal pertama kali dibuka
+  useEffect(() => {
+    if (!open || kategoriList.length > 0) return
+
+    setLoadingKategori(true)
+    api
+      .get('/api/kategori?limit=100')
+      .then((res) => {
+        const items =
+          res.data?.data?.items || res.data?.data?.data || res.data?.data || []
+        setKategoriList(Array.isArray(items) ? items : [])
+      })
+      .catch(() => setKategoriList([]))
+      .finally(() => setLoadingKategori(false))
+  }, [open, kategoriList.length])
+
+  // ===== Handlers =====
+  const toggleFilter = (key, value) => {
+    // Klik chip yang sama lagi = unselect (clear)
+    setFilters((prev) => ({
+      ...prev,
+      [key]: prev[key] === value ? '' : value,
+    }))
   }
 
   const handleReset = () => {
-    setSelectedKategori([])
-    setSelectedStatus(null)
-    setSelectedPewarna(null)
+    setFilters({ kategori_id: '', jenis_pewarna: '', status: '' })
   }
 
   const handleApply = () => {
-    onApply({
-      kategori: selectedKategori,
-      status: selectedStatus,
-      jenisPewarna: selectedPewarna,
-    })
-    onClose()
+    onApply?.(filters)
+    onClose?.()
   }
 
-  const totalSelected = selectedKategori.length + (selectedStatus ? 1 : 0) + (selectedPewarna ? 1 : 0)
+  // Hitung jumlah filter aktif (untuk tampilan)
+  const activeCount = Object.values(filters).filter(Boolean).length
 
   return (
     <Modal
-      isOpen={isOpen}
+      open={open}
       onClose={onClose}
-      title="Filter Produk"
+      title="Filter"
       size="sm"
       footer={
         <>
-          <button
-            onClick={handleReset}
-            className="px-5 py-2.5 text-sm font-semibold rounded-xl text-[#8b5e3c] hover:bg-amber-50 transition-colors"
-          >
+          <Button variant="ghost" onClick={handleReset} disabled={activeCount === 0}>
             Reset
-          </button>
-          <button
-            onClick={handleApply}
-            className="px-5 py-2.5 text-sm font-semibold rounded-xl text-white bg-[#a47352] hover:bg-[#8b5e3c] transition-all active:scale-[0.98]"
-          >
-            Terapkan {totalSelected > 0 && `(${totalSelected})`}
-          </button>
+          </Button>
+          <Button variant="primary" onClick={handleApply}>
+            Terapkan {activeCount > 0 && `(${activeCount})`}
+          </Button>
         </>
       }
     >
-      <div className="space-y-5">
-        <div>
-          <p className="text-sm font-semibold text-[#8b5e3c] mb-2">Kategori</p>
-          {kategoriList.length === 0 ? (
-            <p className="text-xs text-[#a47352]/70 italic">Belum ada data kategori</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {kategoriList.map((k) => {
-                const isActive = selectedKategori.includes(k.id)
-                return (
-                  <button
-                    key={k.id}
-                    onClick={() => toggleKategori(k.id)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                      isActive
-                        ? 'bg-[#a47352] text-white'
-                        : 'bg-[#be9377]/20 text-[#8b5e3c] hover:bg-[#be9377]/30'
-                    }`}
-                  >
-                    {isActive && (
-                      <svg className="inline-block mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none">
-                        <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                    {k.nama_kategori}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
+      {/* ===== Kategori ===== */}
+      <FilterSection title="Kategori">
+        {loadingKategori ? (
+          <p className="text-sm text-[#a47352]/60">Memuat kategori...</p>
+        ) : kategoriList.length === 0 ? (
+          <p className="text-sm text-[#a47352]/60">Tidak ada kategori</p>
+        ) : (
+          <FilterChips
+            options={kategoriList.map((k) => ({ value: k.id, label: k.nama }))}
+            value={filters.kategori_id}
+            onChange={(v) => toggleFilter('kategori_id', v)}
+          />
+        )}
+      </FilterSection>
 
-        <div>
-          <p className="text-sm font-semibold text-[#8b5e3c] mb-2">Status</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { value: 'ready', label: 'Ready' },
-              { value: 'sold', label: 'Sold' },
-            ].map((s) => (
-              <button
-                key={s.value}
-                onClick={() => setSelectedStatus(selectedStatus === s.value ? null : s.value)}
-                className={`py-2.5 rounded-xl text-xs font-semibold border-2 transition-all ${
-                  selectedStatus === s.value
-                    ? 'bg-[#a47352] text-white border-[#a47352]'
-                    : 'bg-white text-[#8b5e3c] border-[#caa179]/50 hover:border-[#a47352]'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* ===== Pewarna ===== */}
+      <FilterSection title="Pewarna">
+        <FilterChips
+          options={Object.entries(JENIS_PEWARNA_LABEL).map(([k, v]) => ({
+            value: k,
+            label: v,
+          }))}
+          value={filters.jenis_pewarna}
+          onChange={(v) => toggleFilter('jenis_pewarna', v)}
+        />
+      </FilterSection>
 
-        <div>
-          <p className="text-sm font-semibold text-[#8b5e3c] mb-2">Jenis Pewarna</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { value: 'sintetis', label: 'Sintetis' },
-              { value: 'alami', label: 'Alami' },
-            ].map((j) => (
-              <button
-                key={j.value}
-                onClick={() => setSelectedPewarna(selectedPewarna === j.value ? null : j.value)}
-                className={`py-2.5 rounded-xl text-xs font-semibold border-2 transition-all ${
-                  selectedPewarna === j.value
-                    ? 'bg-[#a47352] text-white border-[#a47352]'
-                    : 'bg-white text-[#8b5e3c] border-[#caa179]/50 hover:border-[#a47352]'
-                }`}
-              >
-                {j.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      {/* ===== Status Produk ===== */}
+      <FilterSection title="Status Produk">
+        <FilterChips
+          options={Object.entries(STATUS_PRODUK_LABEL).map(([k, v]) => ({
+            value: k,
+            label: v,
+          }))}
+          value={filters.status}
+          onChange={(v) => toggleFilter('status', v)}
+        />
+      </FilterSection>
     </Modal>
+  )
+}
+
+// =====================================================
+// Sub-components
+// =====================================================
+function FilterSection({ title, children }) {
+  return (
+    <div className="mb-5 last:mb-0">
+      <p className="text-[#a47352] text-base font-medium mb-3">{title}</p>
+      {children}
+    </div>
+  )
+}
+
+function FilterChips({ options, value, onChange }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {options.map((opt) => {
+        const isActive = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`
+              h-[52px] rounded-[10px] text-base font-medium px-4
+              border transition-all duration-150 ease-out
+              active:scale-[0.97]
+              ${
+                isActive
+                  ? 'bg-[#a47352] text-white border-[#a47352] shadow-md'
+                  : 'bg-[rgba(227,194,172,0.35)] text-[#a47352] border-transparent hover:border-[#a47352]/50 hover:bg-[rgba(227,194,172,0.5)]'
+              }
+            `}
+          >
+            <span className="truncate block">{opt.label}</span>
+          </button>
+        )
+      })}
+    </div>
   )
 }

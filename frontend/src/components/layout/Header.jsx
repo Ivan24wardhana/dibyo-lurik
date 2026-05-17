@@ -1,129 +1,116 @@
-import { useNavigate, useLocation } from 'react-router-dom'
-import { useState } from 'react'
+// =====================================================
+// Header.jsx
+// Header sticky di top.
+//
+// Update: tambah cart icon dengan badge count untuk CS.
+// Klik cart icon → navigate ke /keranjang.
+//
+// Props:
+//   - onMenuClick: fn - dipanggil saat tombol hamburger diklik
+// =====================================================
+
+import { useLocation, useNavigate } from 'react-router-dom'
+import { ShoppingCart } from 'lucide-react'
 import useAuthStore from '../../store/authStore'
-import { SIDEBAR_ICONS } from '../../lib/constants'
+import useCartStore from '../../store/cartStore'
+import { MENU_CONFIG } from '../../lib/constants'
+import { SidebarToggle } from './Sidebar'
 
 /**
- * Header
- * Match Figma design: title halaman di kiri dengan underline coklat tipis,
- * tombol Logout coklat di kanan atas.
- *
- * Title dinamis berdasarkan URL:
- * - /dashboard → "Dashboard"
- * - /produk → "Produk"
- * - /rekap/70 → "Rekap Stok Gulungan Lebar 70 cm"
- * - dst
- *
- * Logout menampilkan modal konfirmasi dulu (bukan langsung logout)
- * untuk menghindari accidental click.
+ * Cari label menu yang cocok dengan pathname saat ini.
  */
-const PAGE_TITLES = {
-  '/dashboard': 'Dashboard',
-  '/produk': 'Produk',
-  '/rekap/70': 'Rekap Stok Gulungan Lebar 70 cm',
-  '/rekap/110': 'Rekap Stok Gulungan Lebar 110 cm',
-  '/laporan/order': 'Laporan Order',
-  '/laporan/po-reguler': 'Laporan Pre-Order Reguler',
-  '/laporan/po-custom': 'Laporan Pre-Order Custom',
-  '/profil': 'Profil',
-  '/profil/edit': 'Edit Profil',
-}
+function getPageTitle(pathname, role) {
+  if (!role) return 'Dibyo Lurik'
 
-export default function Header() {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const logout = useAuthStore((s) => s.logout)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [loggingOut, setLoggingOut] = useState(false)
+  const menuItems = MENU_CONFIG[role] || []
 
-  const pageTitle = PAGE_TITLES[location.pathname] || 'Dibyo Lurik'
-
-  const handleLogout = async () => {
-    setLoggingOut(true)
-    try {
-      await logout()
-      navigate('/login', { replace: true })
-    } finally {
-      setLoggingOut(false)
-      setShowConfirm(false)
+  for (const item of menuItems) {
+    if (item.children) {
+      for (const child of item.children) {
+        if (pathname.startsWith(child.path)) {
+          return child.label
+        }
+      }
+    }
+    if (item.path && pathname.startsWith(item.path)) {
+      return item.label
     }
   }
 
+  const segment = pathname.split('/')[1]
+  if (segment) {
+    return segment
+      .split('-')
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join(' ')
+  }
+
+  return 'Dashboard'
+}
+
+export default function Header({ onMenuClick }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const profile = useAuthStore((state) => state.profile)
+  const isCS = profile?.role === 'customer_service'
+
+  // Hitung cart badge — total gulungan dari semua cart items
+  const totalGulungan = useCartStore((state) =>
+    state.items.reduce((sum, item) => sum + item.gulungan_selections.length, 0)
+  )
+
+  const pageTitle = getPageTitle(location.pathname, profile?.role)
+
   return (
-    <>
-      <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-8 sticky top-0 z-20">
-        <div>
-          <h1 className="text-2xl font-bold text-[#8b5e3c]">{pageTitle}</h1>
-          <div className="h-0.5 w-16 bg-[#a47352] rounded-full mt-1" />
-        </div>
+    <header
+      className="
+        sticky top-0 z-30
+        bg-white border-b border-gray-200
+        h-[72px] flex items-center
+        px-4 lg:px-8
+        shadow-sm
+      "
+    >
+      {/* Hamburger toggle */}
+      <SidebarToggle onClick={onMenuClick} className="mr-3" />
 
+      {/* Page title */}
+      <h1 className="text-[#a47352] text-2xl lg:text-[28px] font-medium tracking-wide flex-1">
+        {pageTitle}
+      </h1>
+
+      {/* Cart icon - hanya untuk CS */}
+      {isCS && (
         <button
-          onClick={() => setShowConfirm(true)}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white font-semibold text-sm transition-all hover:shadow-lg active:scale-95"
-          style={{ backgroundColor: '#a47352' }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#8b5e3c')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#a47352')}
+          type="button"
+          id="header-cart-icon"
+          onClick={() => navigate('/keranjang')}
+          className="
+            relative p-2.5 rounded-lg
+            text-[#a47352] hover:bg-[#a47352]/10
+            active:scale-95
+            transition-all duration-150 ease-out
+          "
+          aria-label="Keranjang"
+          title="Lihat keranjang"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path
-              d={SIDEBAR_ICONS.logout}
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          </svg>
-          Logout
+          <ShoppingCart className="w-6 h-6" strokeWidth={2} />
+          {totalGulungan > 0 && (
+            <span
+              className="
+                absolute -top-1 -right-1
+                bg-[#ff695e] text-white
+                text-xs font-bold
+                rounded-full min-w-[20px] h-[20px]
+                flex items-center justify-center px-1
+                animate-[pulse_2s_ease-in-out_infinite]
+              "
+            >
+              {totalGulungan > 99 ? '99+' : totalGulungan}
+            </span>
+          )}
         </button>
-      </header>
-
-      {showConfirm && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => !loggingOut && setShowConfirm(false)}
-        >
-          <div
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-16 h-16 rounded-full bg-amber-100 mx-auto mb-4 flex items-center justify-center">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="text-[#a47352]">
-                <path
-                  d={SIDEBAR_ICONS.logout}
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-
-            <h3 className="text-lg font-bold text-center text-gray-900 mb-1">Logout dari sistem?</h3>
-            <p className="text-sm text-center text-gray-500 mb-6">
-              Kamu akan keluar dari sesi ini dan perlu login ulang untuk mengakses kembali.
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirm(false)}
-                disabled={loggingOut}
-                className="flex-1 h-11 rounded-xl font-semibold text-sm transition-colors hover:bg-gray-100 bg-gray-50 text-gray-700 disabled:opacity-50"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="flex-1 h-11 rounded-xl font-semibold text-sm transition-all hover:shadow-md active:scale-95 text-white disabled:opacity-60"
-                style={{ backgroundColor: '#a47352' }}
-              >
-                {loggingOut ? 'Keluar...' : 'Ya, Logout'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
-    </>
+    </header>
   )
 }

@@ -1,42 +1,44 @@
-// =====================================================
 // /api/pre-order-reguler/[id]
-// GET    - detail PO + items (semua role)
-// PATCH  - update header (kepala_produksi/owner)
-//   Field yang bisa diupdate: nama_customer, kontak, alamat, tanggal_selesai,
-//   metode_pembayaran, total_dp, diskon, catatan
-//   TIDAK bisa via PATCH: status, status_pembayaran (pakai action endpoint)
-// DELETE - hapus PO + cascade items (kepala_produksi/owner)
-// =====================================================
+// GET   — detail POR lengkap (semua role)
+// PATCH — update field umum seperti nama, alamat, estimasi (CS only)
+// DELETE — hapus POR (CS only)
+//
+// Note: update STATUS pakai dedicated endpoints:
+//   POST /[id]/start-produksi   → sedang_diproses
+//   POST /[id]/finish-produksi  → selesai_diproses
+//   POST /[id]/mark-paid        → status_pembayaran lunas
 
-import { withAuth, withAuthAndRole } from '@/lib/api-helper'
+import { withAuth } from '@/lib/api-helper'
 import {
   successResponse,
   errorResponse,
   notFoundResponse,
+  forbiddenResponse,
 } from '@/lib/response-helper'
-import { PRE_ORDER_UPDATE_ROLES } from '@/lib/role-helper'
-import { validate, safeParseBody, isValidUUID } from '@/lib/validation'
-import { recalculateTotalPOR } from '@/lib/preorder-helper'
+import { safeParseBody } from '@/lib/validation'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 // =====================================================
-// GET - detail PO + items
+// GET - detail POR dengan items + produk info
 // =====================================================
 export const GET = withAuth(async ({ params }) => {
-  const { id } = params
-  if (!isValidUUID(id)) return errorResponse('ID tidak valid', 400)
+  const { id } = await params
+  if (!id) return errorResponse('ID wajib diisi', 400)
 
   const { data, error } = await supabaseAdmin
     .from('pre_order_reguler')
     .select(`
-      *,
-      created_by_profile:created_by(id, username, nama, role),
-      items:item_pre_order_reguler(
-        id, produk_id, lebar, panjang, jumlah, harga_per_meter, subtotal, created_at,
+      id, nama_customer, no_telpon, alamat,
+      tanggal_po, tanggal_estimasi,
+      status_produksi, status_pembayaran,
+      nominal_dp, diskon, total_harga, metode_pembayaran,
+      created_at, updated_at,
+      item_pre_order_reguler(
+        id, lebar, jumlah, panjang_kain, harga_per_meter,
         produk:produk_id(
-          id, kode_produk, gambar_url, jenis_pewarna,
-          motif:motif_id(nama_motif),
-          kategori:kategori_id(nama_kategori)
+          id, kode_produk, gambar_url,
+          kategori:kategori_id(nama),
+          motif:motif_id(nama)
         )
       )
     `)
@@ -49,80 +51,67 @@ export const GET = withAuth(async ({ params }) => {
 })
 
 // =====================================================
-// PATCH - update header
+// PATCH - update field umum POR (CS only)
+// Field yang bisa diubah: nama_customer, no_telpon, alamat,
+//   tanggal_estimasi, nominal_dp, diskon, metode_pembayaran
 // =====================================================
-export const PATCH = withAuthAndRole(
-  PRE_ORDER_UPDATE_ROLES,
-  async ({ request, params }) => {
-    const { id } = params
-    if (!isValidUUID(id)) return errorResponse('ID tidak valid', 400)
+export const PATCH = withAuth(async ({ request, params, profile }) => {
+  const { id } = await params
+  if (!id) return errorResponse('ID wajib diisi', 400)
 
-    const body = await safeParseBody(request)
-    if (!body) return errorResponse('Body request tidak valid', 400)
-
-    // Field yang boleh diupdate (TIDAK termasuk status & status_pembayaran)
-    const errors = validate(body, {
-      nama_customer: { type: 'string', minLength: 2, maxLength: 255, label: 'Nama customer' },
-      kontak_customer: { type: 'string', maxLength: 20, label: 'Kontak' },
-      alamat_customer: { type: 'string', label: 'Alamat' },
-      metode_pembayaran: {
-        type: 'enum',
-        values: ['cash', 'transfer'],
-        label: 'Metode pembayaran',
-      },
-      total_dp: { type: 'number', min: 0, label: 'Total DP' },
-      diskon: { type: 'number', min: 0, max: 100, label: 'Diskon' },
-      catatan: { type: 'string', label: 'Catatan' },
-    })
-    if (errors.length) return errorResponse(errors[0], 400, { errors })
-
-    const updates = { updated_at: new Date().toISOString() }
-    const fields = [
-      'nama_customer', 'kontak_customer', 'alamat_customer',
-      'tanggal_selesai', 'metode_pembayaran', 'total_dp',
-      'diskon', 'catatan',
-    ]
-    for (const field of fields) {
-      if (body[field] !== undefined) updates[field] = body[field]
-    }
-
-    if (Object.keys(updates).length === 1) {
-      return errorResponse('Tidak ada field yang diupdate', 400)
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from('pre_order_reguler')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
-
-    if (error) return errorResponse('Gagal update: ' + error.message, 500)
-    if (!data) return notFoundResponse('Pre-order tidak ditemukan')
-
-    // Kalau diskon berubah, recalculate total
-    if (body.diskon !== undefined) {
-      await recalculateTotalPOR(id)
-    }
-
-    return successResponse(data, 'Pre-order berhasil diperbarui')
+  if (profile?.role !== 'customer_service') {
+    return forbiddenResponse('Hanya Customer Service yang bisa edit pre-order')
   }
-)
 
-// =====================================================
-// DELETE - cascade ke items (sudah di-handle ON DELETE CASCADE di schema)
-// =====================================================
-export const DELETE = withAuthAndRole(PRE_ORDER_UPDATE_ROLES, async ({ params }) => {
-  const { id } = params
-  if (!isValidUUID(id)) return errorResponse('ID tidak valid', 400)
+  const body = await safeParseBody(request)
+  if (!body) return errorResponse('Body harus JSON valid', 400)
 
-  const { error, count } = await supabaseAdmin
+  // Whitelist field yang boleh diupdate
+  const allowed = [
+    'nama_customer', 'no_telpon', 'alamat',
+    'tanggal_estimasi', 'nominal_dp', 'diskon',
+    'metode_pembayaran', 'total_harga',
+  ]
+
+  const updateData = {}
+  for (const key of allowed) {
+    if (body[key] !== undefined) updateData[key] = body[key]
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return errorResponse('Tidak ada field yang diupdate', 400)
+  }
+
+  const { data, error } = await supabaseAdmin
     .from('pre_order_reguler')
-    .delete({ count: 'exact' })
+    .update(updateData)
+    .eq('id', id)
+    .select('id, nama_customer, status_produksi, status_pembayaran')
+    .single()
+
+  if (error) return errorResponse('Gagal update: ' + error.message, 500)
+  if (!data) return notFoundResponse('Pre-order tidak ditemukan')
+
+  return successResponse(data, 'Pre-order berhasil diupdate')
+})
+
+// =====================================================
+// DELETE - hapus POR (CS only)
+// =====================================================
+export const DELETE = withAuth(async ({ params, profile }) => {
+  const { id } = await params
+  if (!id) return errorResponse('ID wajib diisi', 400)
+
+  if (profile?.role !== 'customer_service') {
+    return forbiddenResponse('Hanya Customer Service yang bisa hapus pre-order')
+  }
+
+  const { error } = await supabaseAdmin
+    .from('pre_order_reguler')
+    .delete()
     .eq('id', id)
 
-  if (error) return errorResponse('Gagal menghapus: ' + error.message, 500)
-  if (!count) return notFoundResponse('Pre-order tidak ditemukan')
+  if (error) return errorResponse('Gagal hapus: ' + error.message, 500)
 
   return successResponse(null, 'Pre-order berhasil dihapus')
 })

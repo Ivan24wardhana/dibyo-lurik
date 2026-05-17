@@ -1,92 +1,133 @@
-import { useState, useEffect, useMemo } from 'react'
-import api from '../lib/api'
+// =====================================================
+// useProduk.js
+// Hook untuk fetch list produk + CRUD operations.
+// =====================================================
 
-/**
- * useProduk
- * Hook untuk mengelola data produk: fetch, search, filter, refetch.
- * Filter supported: kategori[], status, jenisPewarna
- */
-export default function useProduk() {
-  const [produk, setProduk] = useState([])
-  const [kategoriList, setKategoriList] = useState([])
-  const [motifList, setMotifList] = useState([])
+import { useState, useEffect, useCallback } from 'react'
+import api, { getErrorMessage } from '../lib/api'
+
+export default function useProduk({
+  page = 1,
+  limit = 12,
+  search = '',
+  filters = {},
+} = {}) {
+  const [data, setData] = useState([])
+  const [meta, setMeta] = useState({
+    total: 0,
+    totalPages: 1,
+    page: 1,
+    limit: 12,
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState({
-    kategori: [],
-    status: null,
-    jenisPewarna: null,
-  })
-
-  const fetchData = async () => {
+  const fetchProduk = useCallback(async () => {
     setLoading(true)
     setError(null)
+
     try {
-      const [produkRes, kategoriRes, motifRes] = await Promise.all([
-        api.get('/api/produk'),
-        api.get('/api/kategori'),
-        api.get('/api/motif'),
-      ])
-      setProduk(produkRes.data.data || [])
-      setKategoriList(kategoriRes.data.data || [])
-      setMotifList(motifRes.data.data || [])
+      const params = new URLSearchParams()
+      params.set('page', String(page))
+      params.set('limit', String(limit))
+      if (search) params.set('search', search)
+
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== '' && value != null) {
+          params.set(key, String(value))
+        }
+      })
+
+      const response = await api.get(`/api/produk?${params.toString()}`)
+      const result = response.data?.data || {}
+
+      const items = result.items || result.data || []
+      setData(Array.isArray(items) ? items : [])
+
+      setMeta({
+        total: result.total || 0,
+        totalPages: result.totalPages || 1,
+        page: result.page || page,
+        limit: result.limit || limit,
+      })
     } catch (err) {
-      setError(err.message)
-      setProduk([])
-      setKategoriList([])
-      setMotifList([])
+      setError(getErrorMessage(err))
+      setData([])
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, limit, search, JSON.stringify(filters)]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => {
+    fetchProduk()
+  }, [fetchProduk])
 
-  const filteredProduk = useMemo(() => {
-    let result = [...produk]
+  return { data, meta, loading, error, refetch: fetchProduk }
+}
 
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      result = result.filter(
-        (p) =>
-          p.kode_produk?.toLowerCase().includes(q) ||
-          p.kategori_nama?.toLowerCase().includes(q) ||
-          p.motif_nama?.toLowerCase().includes(q)
-      )
+// =====================================================
+// useProdukDetail
+// =====================================================
+export function useProdukDetail(id) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const fetchDetail = useCallback(async () => {
+    if (!id) {
+      setData(null)
+      setLoading(false)
+      return
     }
-
-    if (filters.kategori.length > 0) {
-      result = result.filter((p) => filters.kategori.includes(p.kategori_id))
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await api.get(`/api/produk/${id}`)
+      setData(response.data?.data || null)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setLoading(false)
     }
+  }, [id])
 
-    if (filters.status) {
-      result = result.filter((p) => p.status === filters.status)
-    }
+  useEffect(() => {
+    fetchDetail()
+  }, [fetchDetail])
 
-    if (filters.jenisPewarna) {
-      result = result.filter((p) => p.jenis_pewarna === filters.jenisPewarna)
-    }
+  return { data, loading, error, refetch: fetchDetail }
+}
 
-    return result
-  }, [produk, search, filters])
+// =====================================================
+// CRUD Mutations (untuk Kepala Produksi)
+// =====================================================
 
-  const activeFilterCount =
-    filters.kategori.length +
-    (filters.status ? 1 : 0) +
-    (filters.jenisPewarna ? 1 : 0)
+/**
+ * Create produk baru.
+ * @param {Object} payload - { kategori_id, motif_id, rak_id, jenis_pewarna, gambar_url? }
+ * @returns {Promise<Object>} produk yang dibuat
+ */
+export async function createProduk(payload) {
+  const response = await api.post('/api/produk', payload)
+  return response.data?.data
+}
 
-  return {
-    produk: filteredProduk,
-    allProduk: produk,
-    kategoriList,
-    motifList,
-    loading,
-    error,
-    search, setSearch,
-    filters, setFilters,
-    activeFilterCount,
-    refetch: fetchData,
-  }
+/**
+ * Update produk.
+ * @param {string} id
+ * @param {Object} payload - field yang mau diupdate
+ * @returns {Promise<Object>}
+ */
+export async function updateProduk(id, payload) {
+  const response = await api.patch(`/api/produk/${id}`, payload)
+  return response.data?.data
+}
+
+/**
+ * Hapus produk. Throw error kalau ada FK (gulungan, item PO).
+ * @param {string} id
+ */
+export async function deleteProduk(id) {
+  const response = await api.delete(`/api/produk/${id}`)
+  return response.data?.data
 }

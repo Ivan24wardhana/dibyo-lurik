@@ -1,133 +1,175 @@
 // =====================================================
-// CONSTANTS - Dibyo Lurik
-// File ini berisi semua nilai konstan yang dipakai di banyak tempat.
-// Tujuannya: kalau mau ganti warna/menu, cukup edit di sini saja.
+// constants.js
+// Konstanta global untuk seluruh aplikasi.
 // =====================================================
 
-// -----------------------------------------------------
-// COLOR TOKENS - diambil langsung dari Figma
-// -----------------------------------------------------
-// Penjelasan: token = nama "alias" untuk sebuah nilai.
-// Daripada hardcode #a47352 di banyak tempat, kita pakai
-// COLORS.primary supaya konsisten dan gampang di-rename.
+// =====================================================
+// COLOR PALETTE (Brand)
+// =====================================================
 export const COLORS = {
-  // Brand utama (coklat lurik)
   primary: '#a47352',
   primaryDark: '#5b2400',
-  primaryHover: '#8d6044',     // sedikit lebih gelap untuk hover state
-  primaryLight: '#c19478',     // sedikit lebih terang untuk disabled
+  primaryLight: '#e3c2ac',
+  primaryLightSoft: 'rgba(227, 194, 172, 0.35)',
 
-  // Background lembut (untuk container card/tabel)
-  accentLight: '#e3c2ac',
-  accentLightSoft: 'rgba(227, 194, 172, 0.35)',
+  badgeBlue: '#798acc',
+  badgePurple: '#75438e',
+  badgeCyan: '#67b1b9',
+  badgeGray: '#656961',
+  badgeOrange: '#d88955',
+  badgeOrangeDark: '#b85615',
+  badgeProdukReady: '#76cbf9',
+  badgeProdukSold: '#999999',
 
-  // Badge "lebar kain"
-  badgeBlue: '#798acc',     // 110 cm
-  badgePurple: '#75438e',   // 70 cm
+  statusRed: '#a63636',
+  statusYellow: '#b99e5f',
+  statusGreen: '#91b960',
 
-  // Badge "jenis pre-order"
-  badgeCyan: '#67b1b9',     // Custom
-  badgeGray: '#656961',     // Reguler
+  detailGreen: '#4cd0b1',
 
-  // Badge "status pembayaran"
-  badgeOrange: '#d88955',   // DP
-  badgeOrangeDark: '#b85615', // Lunas
-
-  // Status text (status order)
-  statusRed: 'rgba(227, 33, 33, 0.78)',   // Belum diproses
-  statusGreen: 'rgba(18, 143, 45, 0.78)', // Sedang Diproses
-  statusBlue: 'rgba(27, 80, 140, 0.78)',  // Selesai
-
-  // UI feedback
-  success: '#16a34a',
-  error: '#dc2626',
-  warning: '#f59e0b',
-  info: '#3b82f6',
+  white: '#ffffff',
+  bgGray: '#f5f5f5',
 }
 
-// -----------------------------------------------------
-// BADGE VARIANTS
-// -----------------------------------------------------
-// Mapping otomatis: nilai data → warna badge.
-// Ini memudahkan komponen Badge.jsx untuk pilih warna otomatis
-// berdasarkan teks/kategorinya.
+// =====================================================
+// LEBAR KAIN
+// =====================================================
+export const LEBAR_OPTIONS = [
+  { value: 70, label: '70 cm' },
+  { value: 110, label: '110 cm' },
+]
+
 export const LEBAR_BADGE_COLOR = {
-  '110 cm': COLORS.badgeBlue,
-  '70 cm': COLORS.badgePurple,
-  // Numeric format juga support (kalau backend kirim angka)
-  110: COLORS.badgeBlue,
-  70: COLORS.badgePurple,
+  70: '#75438e',
+  110: '#798acc',
 }
 
-export const JENIS_PO_BADGE_COLOR = {
-  Custom: COLORS.badgeCyan,
-  Reguler: COLORS.badgeGray,
-  custom: COLORS.badgeCyan,
-  reguler: COLORS.badgeGray,
-}
-
-export const PEMBAYARAN_BADGE_COLOR = {
-  DP: COLORS.badgeOrange,
-  Lunas: COLORS.badgeOrangeDark,
-  dp: COLORS.badgeOrange,
-  lunas: COLORS.badgeOrangeDark,
-}
-
-export const STATUS_ORDER_TEXT_COLOR = {
-  'Belum diproses': COLORS.statusRed,
-  'Sedang Diproses': COLORS.statusGreen,
-  'Selesai': COLORS.statusBlue,
-  // Backend format (snake_case)
-  'belum_diproses': COLORS.statusRed,
-  'sedang_diproses': COLORS.statusGreen,
-  'selesai': COLORS.statusBlue,
-}
-
-// -----------------------------------------------------
-// STATUS LABELS - konversi nilai DB ke teks display
-// -----------------------------------------------------
-// Backend pakai snake_case, frontend tampilkan Title Case
-export const STATUS_ORDER_LABEL = {
-  belum_diproses: 'Belum diproses',
-  sedang_diproses: 'Sedang Diproses',
-  selesai: 'Selesai',
-}
-
-export const STATUS_PEMBAYARAN_LABEL = {
-  dp: 'DP',
-  lunas: 'Lunas',
-}
-
-export const METODE_PEMBAYARAN_LABEL = {
-  cash: 'Cash',
-  transfer: 'Transfer',
-}
+// =====================================================
+// JENIS PEWARNA
+// =====================================================
+export const JENIS_PEWARNA_OPTIONS = [
+  { value: 'sintetis', label: 'Sintetis' },
+  { value: 'alami', label: 'Alami' },
+]
 
 export const JENIS_PEWARNA_LABEL = {
   sintetis: 'Sintetis',
   alami: 'Alami',
 }
 
-export const STATUS_PRODUK_LABEL = {
-  ready: 'Tersedia',
-  sold: 'Habis',
+// =====================================================
+// JENIS PO
+// =====================================================
+export const JENIS_PO_BADGE_COLOR = {
+  reguler: '#656961',
+  custom: '#67b1b9',
 }
 
-// -----------------------------------------------------
-// MENU CONFIG - dipakai oleh Sidebar.jsx
-// -----------------------------------------------------
-// Setiap role punya menu sendiri. Sidebar render menu ini
-// berdasarkan profile.role yang sedang login.
-//
-// Format setiap item:
-//   { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' }
-// `icon` adalah nama icon dari library lucide-react.
-//
-// Kalau item punya `children`, dia jadi parent menu yang bisa di-expand.
+export const JENIS_PO_LABEL = {
+  reguler: 'Reguler',
+  custom: 'Custom',
+}
+
+// =====================================================
+// STATUS PRODUK
+// =====================================================
+export const STATUS_PRODUK_LABEL = {
+  ready: 'Ready',
+  sold: 'Sold',
+}
+
+export const STATUS_PRODUK_BADGE_COLOR = {
+  ready: '#76cbf9',
+  sold: '#999999',
+}
+
+// =====================================================
+// STATUS PRODUKSI (PO)
+// =====================================================
+export const STATUS_PRODUKSI_BADGE_COLOR = {
+  belum_diproses: '#a63636',
+  sedang_diproses: '#b99e5f',
+  selesai: '#91b960',
+}
+
+export const STATUS_PRODUKSI_LABEL = {
+  belum_diproses: 'Belum diproses',
+  sedang_diproses: 'Sedang diproses',
+  selesai: 'Selesai diproses',
+}
+
+export const STATUS_PRODUKSI_OPTIONS = [
+  { value: 'belum_diproses', label: 'Belum diproses' },
+  { value: 'sedang_diproses', label: 'Sedang diproses' },
+  { value: 'selesai', label: 'Selesai diproses' },
+]
+
+// =====================================================
+// STATUS ORDER
+// =====================================================
+export const STATUS_ORDER_LABEL = {
+  belum_diproses: 'Belum diproses',
+  sedang_diproses: 'Sedang diproses',
+  selesai: 'Selesai',
+}
+
+export const STATUS_ORDER_TEXT_COLOR = {
+  belum_diproses: '#a63636',
+  sedang_diproses: '#b99e5f',
+  selesai: '#91b960',
+}
+
+// =====================================================
+// STATUS PEMBAYARAN
+// =====================================================
+export const STATUS_PEMBAYARAN_LABEL = {
+  dp: 'DP',
+  lunas: 'Lunas',
+}
+
+export const PEMBAYARAN_BADGE_COLOR = {
+  dp: '#d88955',
+  lunas: '#b85615',
+}
+
+export const STATUS_PEMBAYARAN_OPTIONS = [
+  { value: 'dp', label: 'DP' },
+  { value: 'lunas', label: 'Lunas' },
+]
+
+// =====================================================
+// METODE PEMBAYARAN
+// =====================================================
+export const METODE_PEMBAYARAN_LABEL = {
+  cash: 'Cash',
+  transfer: 'Transfer',
+}
+
+export const METODE_PEMBAYARAN_OPTIONS = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'transfer', label: 'Transfer' },
+]
+
+// =====================================================
+// ROLE
+// =====================================================
+export const ROLES = {
+  OWNER: 'owner',
+  KEPALA_PRODUKSI: 'kepala_produksi',
+  CUSTOMER_SERVICE: 'customer_service',
+}
+
+export const ROLE_LABELS = {
+  owner: 'Owner',
+  kepala_produksi: 'Kepala Produksi',
+  customer_service: 'Customer Service',
+}
+
+// =====================================================
+// MENU CONFIG (sidebar) - by role
+// =====================================================
 export const MENU_CONFIG = {
-  // ==========================
-  // OWNER - lihat semua + export PDF
-  // ==========================
+  // -------------------- OWNER --------------------
   owner: [
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' },
     { label: 'Produk', path: '/produk', icon: 'Package' },
@@ -141,7 +183,7 @@ export const MENU_CONFIG = {
     },
     {
       label: 'Pre-Order',
-      icon: 'ShoppingBag',
+      icon: 'ShoppingCart',
       children: [
         { label: 'Pre-Order Reguler', path: '/pre-order/reguler' },
         { label: 'Pre-Order Custom', path: '/pre-order/custom' },
@@ -159,11 +201,10 @@ export const MENU_CONFIG = {
     { label: 'Profil', path: '/profil', icon: 'UserCircle' },
   ],
 
-  // ==========================
-  // KEPALA PRODUKSI - master data + produksi PO
-  // ==========================
+  // -------------------- KEPALA PRODUKSI --------------------
   kepala_produksi: [
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' },
+    { label: 'Produk', path: '/produk', icon: 'Package' },
     {
       label: 'Master Data',
       icon: 'Database',
@@ -171,16 +212,8 @@ export const MENU_CONFIG = {
         { label: 'Kategori', path: '/master-data/kategori' },
         { label: 'Motif', path: '/master-data/motif' },
         { label: 'Rak', path: '/master-data/rak' },
+        { label: 'Gulungan', path: '/master-data/gulungan' },
         { label: 'Daftar Harga', path: '/master-data/harga' },
-      ],
-    },
-    { label: 'Produk', path: '/produk', icon: 'Package' },
-    {
-      label: 'Pre-Order',
-      icon: 'ShoppingBag',
-      children: [
-        { label: 'Pre-Order Reguler', path: '/pre-order/reguler' },
-        { label: 'Pre-Order Custom', path: '/pre-order/custom' },
       ],
     },
     {
@@ -191,70 +224,60 @@ export const MENU_CONFIG = {
         { label: 'Lebar 110', path: '/rekap-gulungan/110' },
       ],
     },
-    { label: 'Profil', path: '/profil', icon: 'UserCircle' },
-  ],
-
-  // ==========================
-  // CUSTOMER SERVICE - jualan + input PO
-  // ==========================
-  customer_service: [
-    { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' },
-    { label: 'Order', path: '/order', icon: 'ShoppingCart' },
-    { label: 'Keranjang', path: '/keranjang', icon: 'ShoppingBasket' },
     {
       label: 'Pre-Order',
-      icon: 'ShoppingBag',
+      icon: 'ShoppingCart',
       children: [
         { label: 'Pre-Order Reguler', path: '/pre-order/reguler' },
         { label: 'Pre-Order Custom', path: '/pre-order/custom' },
       ],
     },
-    { label: 'Riwayat', path: '/riwayat', icon: 'History' },
+    { label: 'Profil', path: '/profil', icon: 'UserCircle' },
+  ],
+
+  // -------------------- CUSTOMER SERVICE --------------------
+  customer_service: [
+    { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' },
+    { label: 'Order', path: '/order', icon: 'ShoppingBag' },
+    { label: 'Keranjang', path: '/keranjang', icon: 'ShoppingBasket' },
+    {
+      label: 'Pre-Order',
+      icon: 'ShoppingCart',
+      children: [
+        { label: 'Pre-Order Reguler', path: '/pre-order/reguler' },
+        { label: 'Pre-Order Custom', path: '/pre-order/custom' },
+      ],
+    },
+    {
+      label: 'Riwayat',
+      icon: 'History',
+      children: [
+        { label: 'Riwayat Order', path: '/riwayat/order' },
+        { label: 'Riwayat Pre-Order Reguler', path: '/riwayat/pre-order-reguler' },
+        { label: 'Riwayat Pre-Order Custom', path: '/riwayat/pre-order-custom' },
+      ],
+    },
     { label: 'Profil', path: '/profil', icon: 'UserCircle' },
   ],
 }
 
-// -----------------------------------------------------
-// ROLE LABELS - untuk display di UI
-// -----------------------------------------------------
-export const ROLE_LABELS = {
-  owner: 'Owner',
-  kepala_produksi: 'Kepala Produksi',
-  customer_service: 'Customer Service',
-}
-
-// -----------------------------------------------------
-// PAGINATION DEFAULTS
-// -----------------------------------------------------
+// =====================================================
+// PAGINATION
+// =====================================================
 export const PAGINATION = {
-  DEFAULT_LIMIT: 20,
-  MAX_LIMIT: 100,
-  LIMIT_OPTIONS: [10, 20, 50, 100],
+  DEFAULT_LIMIT: 10,
+  PRODUK_LIMIT: 12,
+  PO_LIMIT: 10,
+  ORDER_LIMIT: 15,
 }
 
-// -----------------------------------------------------
-// ENUM VALUES - untuk dropdown form
-// -----------------------------------------------------
+// =====================================================
+// ENUM OPTIONS
+// =====================================================
 export const ENUM_OPTIONS = {
-  jenis_pewarna: [
-    { value: 'sintetis', label: 'Sintetis' },
-    { value: 'alami', label: 'Alami' },
-  ],
-  lebar: [
-    { value: 70, label: '70 cm' },
-    { value: 110, label: '110 cm' },
-  ],
-  metode_pembayaran: [
-    { value: 'cash', label: 'Cash' },
-    { value: 'transfer', label: 'Transfer' },
-  ],
-  status_pembayaran: [
-    { value: 'dp', label: 'DP' },
-    { value: 'lunas', label: 'Lunas' },
-  ],
-  status_order: [
-    { value: 'belum_diproses', label: 'Belum diproses' },
-    { value: 'sedang_diproses', label: 'Sedang Diproses' },
-    { value: 'selesai', label: 'Selesai' },
-  ],
+  lebar: LEBAR_OPTIONS,
+  jenis_pewarna: JENIS_PEWARNA_OPTIONS,
+  status_produksi: STATUS_PRODUKSI_OPTIONS,
+  status_pembayaran: STATUS_PEMBAYARAN_OPTIONS,
+  metode_pembayaran: METODE_PEMBAYARAN_OPTIONS,
 }

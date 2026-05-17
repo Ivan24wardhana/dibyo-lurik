@@ -1,12 +1,20 @@
-﻿/**
- * RakPage
- * Halaman: Rak
- */
+﻿// =====================================================
+// RakPage.jsx
+// frontend/src/pages/master-data/RakPage.jsx
+// Reuse MasterTablePage dari KategoriPage.
+// =====================================================
+
+import { MasterTablePage } from './KategoriPage'
+
 export default function RakPage() {
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Rak</h1>
-      <p className="text-gray-500">Halaman Rak - dalam pengembangan</p>
-    </div>
+    <MasterTablePage
+      title="Rak"
+      endpoint="/api/rak"
+      entityLabel="rak"
+      columnLabel="Rak"
+      inputLabel="Nama Rak"
+      inputPlaceholder="contoh: A"
+    />
   )
 }

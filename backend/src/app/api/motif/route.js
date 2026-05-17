@@ -1,8 +1,4 @@
-﻿// =====================================================
-// /api/motif
-// GET  - list motif (semua role)
-// POST - tambah motif (kepala_produksi/owner)
-// =====================================================
+﻿// /api/motif — GET list + POST create
 
 import { withAuth, withAuthAndRole } from '@/lib/api-helper'
 import {
@@ -10,62 +6,54 @@ import {
   errorResponse,
   conflictResponse,
 } from '@/lib/response-helper'
+import { safeParseBody } from '@/lib/validation'
+import {
+  parsePagination,
+  parseSearch,
+  buildPaginatedData,
+} from '@/lib/crud-helper'
 import { PRODUCTION_ROLES } from '@/lib/role-helper'
-import { validate, safeParseBody } from '@/lib/validation'
-import { parsePagination, buildPaginatedData } from '@/lib/crud-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 export const GET = withAuth(async ({ request }) => {
   const pagination = parsePagination(request)
+  const search = parseSearch(request)
 
-  const [countResult, dataResult] = await Promise.all([
-    supabaseAdmin.from('motif').select('*', { count: 'exact', head: true }),
-    supabaseAdmin
-      .from('motif')
-      .select('id, nama_motif, created_at, updated_at')
-      .order('nama_motif', { ascending: true })
-      .range(pagination.offset, pagination.offset + pagination.limit - 1),
-  ])
+  let query = supabaseAdmin
+    .from('motif')
+    .select('id, nama, created_at', { count: 'exact' })
+    .order('nama', { ascending: true })
 
-  if (dataResult.error) return errorResponse('Gagal memuat data motif', 500)
+  if (search) query = query.ilike('nama', `%${search}%`)
 
-  return successResponse(
-    buildPaginatedData(dataResult.data || [], countResult.count || 0, pagination)
+  const { data, count, error } = await query.range(
+    pagination.offset,
+    pagination.offset + pagination.limit - 1
   )
+
+  if (error) return errorResponse('Gagal memuat motif: ' + error.message, 500)
+
+  return successResponse(buildPaginatedData(data || [], count || 0, pagination))
 })
 
 export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
   const body = await safeParseBody(request)
-  if (!body) return errorResponse('Body request tidak valid', 400)
+  if (!body) return errorResponse('Body harus JSON valid', 400)
 
-  const errors = validate(body, {
-    nama_motif: {
-      type: 'string',
-      required: true,
-      minLength: 2,
-      maxLength: 255,
-      label: 'Nama motif',
-    },
-  })
-  if (errors.length) return errorResponse(errors[0], 400, { errors })
-
-  const namaMotif = body.nama_motif.trim()
-
-  const { data: existing } = await supabaseAdmin
-    .from('motif')
-    .select('id')
-    .ilike('nama_motif', namaMotif)
-    .maybeSingle()
-
-  if (existing) return conflictResponse('Nama motif sudah ada')
+  const nama = body.nama?.toString().trim()
+  if (!nama) return errorResponse('Nama motif wajib diisi', 400)
+  if (nama.length > 255) return errorResponse('Nama terlalu panjang (maks 255 karakter)', 400)
 
   const { data, error } = await supabaseAdmin
     .from('motif')
-    .insert({ nama_motif: namaMotif })
+    .insert({ nama })
     .select()
     .single()
 
-  if (error) return errorResponse('Gagal menyimpan motif: ' + error.message, 500)
+  if (error) {
+    if (error.code === '23505') return conflictResponse('Nama motif sudah ada')
+    return errorResponse('Gagal membuat motif: ' + error.message, 500)
+  }
 
-  return successResponse(data, 'Motif berhasil ditambahkan', 201)
+  return successResponse(data, 'Motif berhasil dibuat', 201)
 })

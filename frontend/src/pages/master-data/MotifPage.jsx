@@ -1,12 +1,20 @@
-﻿/**
- * MotifPage
- * Halaman: Motif
- */
+﻿// =====================================================
+// MotifPage.jsx
+// frontend/src/pages/master-data/MotifPage.jsx
+// Reuse MasterTablePage dari KategoriPage.
+// =====================================================
+
+import { MasterTablePage } from './KategoriPage'
+
 export default function MotifPage() {
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">Motif</h1>
-      <p className="text-gray-500">Halaman Motif - dalam pengembangan</p>
-    </div>
+    <MasterTablePage
+      title="Motif"
+      endpoint="/api/motif"
+      entityLabel="motif"
+      columnLabel="Motif"
+      inputLabel="Nama Motif"
+      inputPlaceholder="contoh: Lurik Salur"
+    />
   )
 }

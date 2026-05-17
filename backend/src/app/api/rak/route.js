@@ -1,8 +1,5 @@
-﻿// =====================================================
-// /api/rak
-// GET  - list rak (semua role)
-// POST - tambah rak (kepala_produksi/owner)
-// =====================================================
+﻿// /api/rak — GET list + POST create
+// Nama rak selalu disimpan UPPERCASE (A, B, C, dll)
 
 import { withAuth, withAuthAndRole } from '@/lib/api-helper'
 import {
@@ -10,62 +7,54 @@ import {
   errorResponse,
   conflictResponse,
 } from '@/lib/response-helper'
+import { safeParseBody } from '@/lib/validation'
+import {
+  parsePagination,
+  parseSearch,
+  buildPaginatedData,
+} from '@/lib/crud-helper'
 import { PRODUCTION_ROLES } from '@/lib/role-helper'
-import { validate, safeParseBody } from '@/lib/validation'
-import { parsePagination, buildPaginatedData } from '@/lib/crud-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 export const GET = withAuth(async ({ request }) => {
   const pagination = parsePagination(request)
+  const search = parseSearch(request)
 
-  const [countResult, dataResult] = await Promise.all([
-    supabaseAdmin.from('rak').select('*', { count: 'exact', head: true }),
-    supabaseAdmin
-      .from('rak')
-      .select('id, nama_rak, created_at, updated_at')
-      .order('nama_rak', { ascending: true })
-      .range(pagination.offset, pagination.offset + pagination.limit - 1),
-  ])
+  let query = supabaseAdmin
+    .from('rak')
+    .select('id, nama, created_at', { count: 'exact' })
+    .order('nama', { ascending: true })
 
-  if (dataResult.error) return errorResponse('Gagal memuat data rak', 500)
+  if (search) query = query.ilike('nama', `%${search}%`)
 
-  return successResponse(
-    buildPaginatedData(dataResult.data || [], countResult.count || 0, pagination)
+  const { data, count, error } = await query.range(
+    pagination.offset,
+    pagination.offset + pagination.limit - 1
   )
+
+  if (error) return errorResponse('Gagal memuat rak: ' + error.message, 500)
+
+  return successResponse(buildPaginatedData(data || [], count || 0, pagination))
 })
 
 export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
   const body = await safeParseBody(request)
-  if (!body) return errorResponse('Body request tidak valid', 400)
+  if (!body) return errorResponse('Body harus JSON valid', 400)
 
-  const errors = validate(body, {
-    nama_rak: {
-      type: 'string',
-      required: true,
-      minLength: 1,
-      maxLength: 100,
-      label: 'Nama rak',
-    },
-  })
-  if (errors.length) return errorResponse(errors[0], 400, { errors })
-
-  const namaRak = body.nama_rak.trim()
-
-  const { data: existing } = await supabaseAdmin
-    .from('rak')
-    .select('id')
-    .ilike('nama_rak', namaRak)
-    .maybeSingle()
-
-  if (existing) return conflictResponse('Nama rak sudah ada')
+  const nama = body.nama?.toString().trim().toUpperCase()  // ← selalu UPPERCASE
+  if (!nama) return errorResponse('Nama rak wajib diisi', 400)
+  if (nama.length > 100) return errorResponse('Nama terlalu panjang (maks 100 karakter)', 400)
 
   const { data, error } = await supabaseAdmin
     .from('rak')
-    .insert({ nama_rak: namaRak })
+    .insert({ nama })
     .select()
     .single()
 
-  if (error) return errorResponse('Gagal menyimpan rak: ' + error.message, 500)
+  if (error) {
+    if (error.code === '23505') return conflictResponse('Nama rak sudah ada')
+    return errorResponse('Gagal membuat rak: ' + error.message, 500)
+  }
 
-  return successResponse(data, 'Rak berhasil ditambahkan', 201)
+  return successResponse(data, 'Rak berhasil dibuat', 201)
 })

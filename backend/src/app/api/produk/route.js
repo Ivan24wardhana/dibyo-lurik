@@ -1,32 +1,23 @@
 ﻿// =====================================================
 // /api/produk
-// GET  - list produk (search by kode, filter status/kategori, pagination)
-// POST - tambah produk baru (kepala_produksi/owner)
+// GET  - list produk dengan pagination, search, filter
+// POST - create produk baru (Kepala Produksi only)
 //
-// Schema v6 catatan:
-//   - kode_produk auto-generate by trigger (RAK+KAT_INITIAL+DDMMYY+MOTIF_INITIAL+SS)
-//   - stok auto-update by trigger berdasarkan jumlah gulungan aktif
-//   - status auto-update (ready kalau stok > 0, sold kalau stok = 0)
-//   - terjual auto-update by trigger setelah ada item_order
-//   - jenis_pewarna ada di tabel produk (gulungan inherit, tidak duplikasi)
+// Helper convention proyek:
+//   - validate() return ARRAY error → errors.length > 0
+//   - parseSearch() pakai param '?q=' (bukan ?search=)
+//   - buildPaginatedData() return shape:
+//       { items, pagination: { page, limit, total, total_pages } }
 //
-// Query params GET:
-//   ?q=keyword       → search di kode_produk
-//   ?status=ready    → filter status (ready/sold)
-//   ?kategori=<uuid> → filter kategori
-//   ?motif=<uuid>    → filter motif
-//   ?rak=<uuid>      → filter rak
-//   ?page=1&limit=20 → pagination
+// Schema v6: kategori.nama, motif.nama, rak.nama
 // =====================================================
 
 import { withAuth, withAuthAndRole } from '@/lib/api-helper'
 import {
   successResponse,
   errorResponse,
-  notFoundResponse,
   conflictResponse,
 } from '@/lib/response-helper'
-import { PRODUCTION_ROLES } from '@/lib/role-helper'
 import { validate, safeParseBody } from '@/lib/validation'
 import {
   parsePagination,
@@ -34,23 +25,34 @@ import {
   parseQueryParam,
   buildPaginatedData,
 } from '@/lib/crud-helper'
+import { PRODUCTION_ROLES } from '@/lib/role-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 // =====================================================
-// GET - list produk dengan search & filter
+// GET - List produk
+// Query params:
+//   ?page=1&limit=12         - pagination (default 20, max 100)
+//   ?q=AKLBL                 - search by kode_produk
+//   ?status=ready|sold       - filter
+//   ?kategori_id=<uuid>
+//   ?motif_id=<uuid>
+//   ?rak_id=<uuid>
+//   ?jenis_pewarna=sintetis|alami
 // =====================================================
 export const GET = withAuth(async ({ request }) => {
   const pagination = parsePagination(request)
   const search = parseSearch(request)
   const filterStatus = parseQueryParam(request, 'status')
-  const filterKategori = parseQueryParam(request, 'kategori')
-  const filterMotif = parseQueryParam(request, 'motif')
-  const filterRak = parseQueryParam(request, 'rak')
+  const filterKategori = parseQueryParam(request, 'kategori_id')
+  const filterMotif = parseQueryParam(request, 'motif_id')
+  const filterRak = parseQueryParam(request, 'rak_id')
+  const filterPewarna = parseQueryParam(request, 'jenis_pewarna')
 
-  const buildQuery = (forCount = false) => {
-    const selectFields = forCount
-      ? '*'
-      : `
+  // Build query dengan join kategori, motif, rak (field v6: nama)
+  let query = supabaseAdmin
+    .from('produk')
+    .select(
+      `
         id,
         gambar_url,
         kode_produk,
@@ -60,54 +62,63 @@ export const GET = withAuth(async ({ request }) => {
         terjual,
         tanggal_ditambahkan,
         created_at,
-        kategori:kategori_id(id, nama_kategori),
-        motif:motif_id(id, nama_motif),
-        rak:rak_id(id, nama_rak)
-      `
+        updated_at,
+        kategori:kategori_id(id, nama),
+        motif:motif_id(id, nama),
+        rak:rak_id(id, nama)
+      `,
+      { count: 'exact' }
+    )
 
-    let query = supabaseAdmin
-      .from('produk')
-      .select(selectFields, forCount ? { count: 'exact', head: true } : undefined)
-
-    if (filterStatus) query = query.eq('status', filterStatus)
-    if (filterKategori) query = query.eq('kategori_id', filterKategori)
-    if (filterMotif) query = query.eq('motif_id', filterMotif)
-    if (filterRak) query = query.eq('rak_id', filterRak)
-
-    // Search di kode_produk
-    if (search) {
-      query = query.ilike('kode_produk', `%${search}%`)
-    }
-
-    return query
+  // Search by kode_produk
+  if (search) {
+    query = query.ilike('kode_produk', `%${search}%`)
   }
 
-  const [countResult, dataResult] = await Promise.all([
-    buildQuery(true),
-    buildQuery(false)
-      .order('created_at', { ascending: false })
-      .range(pagination.offset, pagination.offset + pagination.limit - 1),
-  ])
+  // Filters
+  if (filterStatus) query = query.eq('status', filterStatus)
+  if (filterKategori) query = query.eq('kategori_id', filterKategori)
+  if (filterMotif) query = query.eq('motif_id', filterMotif)
+  if (filterRak) query = query.eq('rak_id', filterRak)
+  if (filterPewarna) query = query.eq('jenis_pewarna', filterPewarna)
 
-  if (dataResult.error) {
-    return errorResponse('Gagal memuat produk: ' + dataResult.error.message, 500)
+  const { data, count, error } = await query
+    .order('created_at', { ascending: false })
+    .range(pagination.offset, pagination.offset + pagination.limit - 1)
+
+  if (error) {
+    console.error('[produk GET] error:', error)
+    return errorResponse('Gagal memuat produk: ' + error.message, 500)
   }
 
   return successResponse(
-    buildPaginatedData(dataResult.data || [], countResult.count || 0, pagination)
+    buildPaginatedData(data || [], count || 0, pagination)
   )
 })
 
 // =====================================================
-// POST - tambah produk baru
+// POST - Create produk baru
+// Body:
+//   {
+//     motif_id: uuid (required),
+//     kategori_id: uuid (required),
+//     rak_id: uuid (required),
+//     jenis_pewarna: 'sintetis'|'alami' (required),
+//     gambar_url?: string (optional, URL atau base64)
+//   }
+// kode_produk auto-generate via trigger DB
+// stok, terjual, status di-default 0/'ready'
 // =====================================================
 export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
   const body = await safeParseBody(request)
-  if (!body) return errorResponse('Body request tidak valid', 400)
+  if (!body) {
+    return errorResponse('Body request harus JSON valid', 400)
+  }
 
+  // Validasi pakai helper validate() - return ARRAY error
   const errors = validate(body, {
-    kategori_id: { type: 'uuid', required: true, label: 'Kategori' },
     motif_id: { type: 'uuid', required: true, label: 'Motif' },
+    kategori_id: { type: 'uuid', required: true, label: 'Kategori' },
     rak_id: { type: 'uuid', required: true, label: 'Rak' },
     jenis_pewarna: {
       type: 'enum',
@@ -115,45 +126,54 @@ export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
       values: ['sintetis', 'alami'],
       label: 'Jenis pewarna',
     },
-    // gambar_url optional - bisa diisi setelah upload ke Supabase Storage
-    gambar_url: { type: 'string', maxLength: 500, label: 'Gambar URL' },
   })
-  if (errors.length) return errorResponse(errors[0], 400, { errors })
 
-  // Verifikasi semua FK exists
-  const [kategoriCheck, motifCheck, rakCheck] = await Promise.all([
-    supabaseAdmin.from('kategori').select('id').eq('id', body.kategori_id).maybeSingle(),
-    supabaseAdmin.from('motif').select('id').eq('id', body.motif_id).maybeSingle(),
-    supabaseAdmin.from('rak').select('id').eq('id', body.rak_id).maybeSingle(),
-  ])
+  if (errors.length > 0) {
+    return errorResponse('Data tidak valid', 400, { errors })
+  }
 
-  if (!kategoriCheck.data) return notFoundResponse('Kategori tidak ditemukan')
-  if (!motifCheck.data) return notFoundResponse('Motif tidak ditemukan')
-  if (!rakCheck.data) return notFoundResponse('Rak tidak ditemukan')
+  // Insert produk - kode_produk auto-generate via trigger
+  const insertData = {
+    motif_id: body.motif_id,
+    kategori_id: body.kategori_id,
+    rak_id: body.rak_id,
+    jenis_pewarna: body.jenis_pewarna,
+    gambar_url: body.gambar_url || null,
+  }
 
-  // Insert (kode_produk, stok, status, terjual auto-handled by triggers)
   const { data, error } = await supabaseAdmin
     .from('produk')
-    .insert({
-      gambar_url: body.gambar_url || null,
-      kategori_id: body.kategori_id,
-      motif_id: body.motif_id,
-      rak_id: body.rak_id,
-      jenis_pewarna: body.jenis_pewarna,
-      // stok = 0 default (akan jadi non-zero begitu gulungan ditambahkan)
-    })
-    .select(`
-      id, gambar_url, kode_produk, jenis_pewarna, stok, status, terjual,
-      kategori:kategori_id(nama_kategori),
-      motif:motif_id(nama_motif),
-      rak:rak_id(nama_rak)
-    `)
+    .insert(insertData)
+    .select(
+      `
+        id,
+        gambar_url,
+        kode_produk,
+        jenis_pewarna,
+        stok,
+        status,
+        kategori:kategori_id(id, nama),
+        motif:motif_id(id, nama),
+        rak:rak_id(id, nama)
+      `
+    )
     .single()
 
   if (error) {
-    if (error.code === '23505') return conflictResponse('Kombinasi produk sudah ada')
-    return errorResponse('Gagal menyimpan produk: ' + error.message, 500)
+    console.error('[produk POST] error:', error)
+    // FK constraint - kategori/motif/rak tidak ditemukan
+    if (error.code === '23503') {
+      return errorResponse(
+        'Kategori, motif, atau rak tidak ditemukan. Pastikan data sudah ada.',
+        400
+      )
+    }
+    // Unique constraint - kode_produk duplikat (jarang terjadi karena auto)
+    if (error.code === '23505') {
+      return conflictResponse('Kode produk sudah ada, silakan coba lagi')
+    }
+    return errorResponse('Gagal membuat produk: ' + error.message, 500)
   }
 
-  return successResponse(data, 'Produk berhasil ditambahkan', 201)
+  return successResponse(data, 'Produk berhasil dibuat', 201)
 })

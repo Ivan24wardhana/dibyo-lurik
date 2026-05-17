@@ -1,81 +1,104 @@
 ﻿// =====================================================
 // /api/rekap-gulungan
-// GET - rekap stok gulungan, biasanya difilter by lebar (70 atau 110)
+// GET - rekap stok gulungan untuk halaman Rekap.
 //
-// Pakai VIEW v_rekap_gulungan dari schema (sudah agregasi).
-// Kalau view tidak ada, fallback ke query manual.
+// Tujuan rekap:
+//   Owner / Kepala Produksi mau tahu total gulungan kain per rak,
+//   biasanya untuk cocokkan stok fisik dengan sistem (stock-take).
+//
+// Karakteristik:
+//   - HANYA gulungan AKTIF (is_active=true, masih ada panjang_sisa)
+//   - TIDAK pakai pagination (frontend butuh semua data untuk hitung total)
+//   - Filter optional by lebar (70 atau 110 cm)
+//   - Frontend yang lakukan grouping by rak
 //
 // Query params:
-//   ?lebar=70|110  → filter lebar
-//   ?status=tersedia|sold  → filter status
-//   ?page=1&limit=20  → pagination
+//   ?lebar=70  → filter cuma lebar 70 cm
+//   ?lebar=110 → filter cuma lebar 110 cm
+//   (tanpa param) → semua lebar
+//
+// Response:
+//   {
+//     success: true,
+//     data: {
+//       items: [
+//         {
+//           id, nomor_gulungan, lebar, panjang_total, panjang_sisa,
+//           harga_per_meter, is_active, rak_id,
+//           rak: { id, nama },
+//           produk: {
+//             id, kode_produk, jenis_pewarna, gambar_url,
+//             motif: { id, nama },
+//             kategori: { id, nama }
+//           }
+//         },
+//         ...
+//       ],
+//       total: 42  // jumlah gulungan aktif
+//     }
+//   }
 // =====================================================
 
 import { withAuth } from '@/lib/api-helper'
 import { successResponse, errorResponse } from '@/lib/response-helper'
-import {
-  parsePagination,
-  parseQueryParam,
-  buildPaginatedData,
-} from '@/lib/crud-helper'
+import { parseQueryParam } from '@/lib/crud-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 export const GET = withAuth(async ({ request }) => {
-  const pagination = parsePagination(request)
   const filterLebar = parseQueryParam(request, 'lebar')
-  const filterStatus = parseQueryParam(request, 'status')
 
-  // Coba pakai view dulu
-  let query = supabaseAdmin
-    .from('v_rekap_gulungan')
-    .select('*', { count: 'exact' })
-
-  if (filterLebar) query = query.eq('lebar', parseInt(filterLebar))
-  if (filterStatus) query = query.eq('status', filterStatus)
-
-  const { data, count, error } = await query
-    .order('kode_gulungan', { ascending: true })
-    .range(pagination.offset, pagination.offset + pagination.limit - 1)
-
-  // Kalau view tidak ada / error, fallback ke query gulungan langsung
-  if (error) {
-    console.warn('[rekap-gulungan] view error, fallback to manual query:', error.message)
-
-    let fallbackQuery = supabaseAdmin
-      .from('gulungan')
-      .select(
-        `
-          id,
-          kode_gulungan,
-          lebar,
-          panjang_awal,
-          panjang_sisa,
-          status,
-          produk:produk_id(kode_produk, motif:motif_id(nama_motif), kategori:kategori_id(nama_kategori)),
-          rak:rak_id(nama_rak)
-        `,
-        { count: 'exact' }
-      )
-
-    if (filterLebar) fallbackQuery = fallbackQuery.eq('lebar', parseInt(filterLebar))
-    if (filterStatus) fallbackQuery = fallbackQuery.eq('status', filterStatus)
-
-    const fallbackResult = await fallbackQuery
-      .order('created_at', { ascending: false })
-      .range(pagination.offset, pagination.offset + pagination.limit - 1)
-
-    if (fallbackResult.error) {
-      return errorResponse('Gagal memuat rekap: ' + fallbackResult.error.message, 500)
-    }
-
-    return successResponse(
-      buildPaginatedData(
-        fallbackResult.data || [],
-        fallbackResult.count || 0,
-        pagination
-      )
-    )
+  // Validasi lebar - hanya 70 atau 110 yang valid
+  if (filterLebar && !['70', '110'].includes(filterLebar)) {
+    return errorResponse('Lebar harus 70 atau 110', 400)
   }
 
-  return successResponse(buildPaginatedData(data || [], count || 0, pagination))
+  // Query gulungan dengan nested join.
+  // Format Supabase: relation_name(field1, field2, nested_relation(...))
+  let query = supabaseAdmin
+    .from('gulungan')
+    .select(
+      `
+        id,
+        nomor_gulungan,
+        lebar,
+        panjang_total,
+        panjang_sisa,
+        harga_per_meter,
+        is_active,
+        rak_id,
+        produk_id,
+        rak:rak_id(id, nama),
+        produk:produk_id(
+          id,
+          kode_produk,
+          jenis_pewarna,
+          gambar_url,
+          motif:motif_id(id, nama),
+          kategori:kategori_id(id, nama)
+        )
+      `
+    )
+    // Hanya gulungan aktif (is_active=true) - sudah include filter panjang_sisa>0
+    // karena trigger DB otomatis set is_active=false saat panjang_sisa habis
+    .eq('is_active', true)
+
+  // Filter optional by lebar
+  if (filterLebar) {
+    query = query.eq('lebar', parseInt(filterLebar))
+  }
+
+  // Sort: rak dulu (supaya group by rak teratur), lalu nomor_gulungan
+  const { data, error } = await query
+    .order('rak_id', { ascending: true })
+    .order('nomor_gulungan', { ascending: true })
+
+  if (error) {
+    console.error('[rekap-gulungan] error:', error)
+    return errorResponse('Gagal memuat rekap: ' + error.message, 500)
+  }
+
+  return successResponse({
+    items: data || [],
+    total: (data || []).length,
+  })
 })

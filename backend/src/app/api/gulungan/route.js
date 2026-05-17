@@ -1,24 +1,14 @@
 ﻿// =====================================================
 // /api/gulungan
-// GET  - list semua gulungan dengan filter
-// POST - tambah gulungan baru (kepala_produksi/owner)
+// GET  - list gulungan (filter by produk_id, lebar, is_active)
+// POST - create gulungan baru
 //
-// Schema v6 fields:
-//   - produk_id (FK)
-//   - nomor_gulungan (auto: max+1 per produk, UNIQUE per produk)
-//   - lebar (70 atau 110)
-//   - panjang_total (panjang awal saat ditambahkan)
-//   - panjang_sisa (= panjang_total saat baru, dipotong oleh trigger order)
-//   - harga_per_meter (auto-fill dari daftar_harga via lookup)
-//   - is_active (TRUE saat baru, FALSE kalau panjang_sisa = 0)
-//
-// jenis_pewarna TIDAK ada di gulungan - inherit dari produk.
-//
-// Query params GET:
-//   ?lebar=70|110           → filter lebar
-//   ?is_active=true|false   → filter aktif/habis (boolean)
-//   ?produk_id=<uuid>       → filter produk
-//   ?page=1&limit=20        → pagination
+// Logic POST:
+//   - Auto-increment nomor_gulungan dari existing
+//   - Auto-fill harga_per_meter via get_harga_per_meter() function di DB
+//     (lookup from daftar_harga: jenis_pewarna + motif + lebar)
+//   - Field minimal user input: produk_id, lebar, panjang_total
+//   - panjang_sisa = panjang_total saat create
 // =====================================================
 
 import { withAuth, withAuthAndRole } from '@/lib/api-helper'
@@ -27,92 +17,99 @@ import {
   errorResponse,
   notFoundResponse,
 } from '@/lib/response-helper'
-import { PRODUCTION_ROLES } from '@/lib/role-helper'
 import { validate, safeParseBody } from '@/lib/validation'
 import {
   parsePagination,
   parseQueryParam,
   buildPaginatedData,
 } from '@/lib/crud-helper'
+import { PRODUCTION_ROLES } from '@/lib/role-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 // =====================================================
-// GET - list gulungan dengan filter
+// GET - List gulungan
+// Query params:
+//   ?produk_id=<uuid>      - filter by produk
+//   ?lebar=70|110          - filter by lebar
+//   ?is_active=true|false  - filter by status aktif
+//   ?page=1&limit=20       - pagination
 // =====================================================
 export const GET = withAuth(async ({ request }) => {
   const pagination = parsePagination(request)
-  const filterLebar = parseQueryParam(request, 'lebar')
-  const filterActive = parseQueryParam(request, 'is_active')
   const filterProduk = parseQueryParam(request, 'produk_id')
+  const filterLebar = parseQueryParam(request, 'lebar')
+  const filterAktif = parseQueryParam(request, 'is_active')
 
-  const buildQuery = (forCount = false) => {
-    let query = supabaseAdmin
-      .from('gulungan')
-      .select(
-        forCount
-          ? '*'
-          : `
-            id,
-            nomor_gulungan,
-            lebar,
-            panjang_total,
-            panjang_sisa,
-            harga_per_meter,
-            is_active,
-            created_at,
-            produk:produk_id(
-              id,
-              kode_produk,
-              gambar_url,
-              jenis_pewarna,
-              motif:motif_id(nama_motif),
-              kategori:kategori_id(nama_kategori),
-              rak:rak_id(nama_rak)
-            )
-          `,
-        forCount ? { count: 'exact', head: true } : undefined
-      )
+  let query = supabaseAdmin
+    .from('gulungan')
+    .select(
+      `
+        id,
+        produk_id,
+        nomor_gulungan,
+        lebar,
+        panjang_total,
+        panjang_sisa,
+        harga_per_meter,
+        is_active,
+        created_at,
+        updated_at,
+        produk:produk_id(
+          id,
+          kode_produk,
+          gambar_url,
+          jenis_pewarna,
+          kategori:kategori_id(id, nama),
+          motif:motif_id(id, nama),
+          rak:rak_id(id, nama)
+        )
+      `,
+      { count: 'exact' }
+    )
 
-    if (filterLebar) query = query.eq('lebar', parseInt(filterLebar))
-    if (filterActive !== null && filterActive !== undefined) {
-      // Convert string 'true'/'false' ke boolean
-      const boolValue = filterActive === 'true'
-      query = query.eq('is_active', boolValue)
-    }
-    if (filterProduk) query = query.eq('produk_id', filterProduk)
+  if (filterProduk) query = query.eq('produk_id', filterProduk)
+  if (filterLebar) query = query.eq('lebar', parseInt(filterLebar))
+  if (filterAktif === 'true') query = query.eq('is_active', true)
+  if (filterAktif === 'false') query = query.eq('is_active', false)
 
-    return query
-  }
+  const { data, count, error } = await query
+    .order('produk_id', { ascending: true })
+    .order('nomor_gulungan', { ascending: true })
+    .range(pagination.offset, pagination.offset + pagination.limit - 1)
 
-  const [countResult, dataResult] = await Promise.all([
-    buildQuery(true),
-    buildQuery(false)
-      .order('created_at', { ascending: false })
-      .range(pagination.offset, pagination.offset + pagination.limit - 1),
-  ])
-
-  if (dataResult.error) {
-    return errorResponse('Gagal memuat gulungan: ' + dataResult.error.message, 500)
+  if (error) {
+    console.error('[gulungan GET] error:', error)
+    return errorResponse('Gagal memuat gulungan: ' + error.message, 500)
   }
 
   return successResponse(
-    buildPaginatedData(dataResult.data || [], countResult.count || 0, pagination)
+    buildPaginatedData(data || [], count || 0, pagination)
   )
 })
 
 // =====================================================
-// POST - tambah gulungan baru
-// Field minimum dari frontend: produk_id, lebar, panjang_total
-// Auto:
-//   - nomor_gulungan: max(nomor_gulungan untuk produk_id) + 1
-//   - harga_per_meter: lookup dari daftar_harga via (jenis_pewarna+motif+lebar)
-//   - panjang_sisa: = panjang_total
-//   - is_active: TRUE
+// POST - Create gulungan
+// Body (field minimal):
+//   {
+//     produk_id: uuid (required),
+//     lebar: 70 | 110 (required),
+//     panjang_total: number (required, > 0),
+//     harga_per_meter?: number (optional - kalau null, auto-lookup dari daftar_harga)
+//   }
+//
+// Flow:
+//   1. Fetch produk untuk dapatkan jenis_pewarna & motif_id
+//   2. Hitung nomor_gulungan = max + 1 dari existing
+//   3. Kalau harga_per_meter null → call get_harga_per_meter() RPC
+//   4. Insert dengan panjang_sisa = panjang_total
 // =====================================================
 export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
   const body = await safeParseBody(request)
-  if (!body) return errorResponse('Body request tidak valid', 400)
+  if (!body) {
+    return errorResponse('Body request harus JSON valid', 400)
+  }
 
+  // Validasi field wajib
   const errors = validate(body, {
     produk_id: { type: 'uuid', required: true, label: 'Produk' },
     lebar: {
@@ -124,64 +121,32 @@ export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
     panjang_total: {
       type: 'number',
       required: true,
-      min: 0.1,
-      label: 'Panjang total (m)',
-    },
-    // harga_per_meter optional - kalau tidak diisi, auto-fill dari daftar_harga
-    harga_per_meter: {
-      type: 'number',
-      min: 0,
-      label: 'Harga per meter',
+      min: 0.01,
+      label: 'Panjang total',
     },
   })
-  if (errors.length) return errorResponse(errors[0], 400, { errors })
 
-  // Ambil produk untuk dapat jenis_pewarna & motif_id (untuk lookup harga)
-  const { data: produk, error: produkErr } = await supabaseAdmin
+  if (errors.length > 0) {
+    return errorResponse('Data tidak valid', 400, { errors })
+  }
+
+  // Lebar bisa string '70' atau number 70 - normalize
+  const lebar = parseInt(body.lebar)
+  const panjangTotal = parseFloat(body.panjang_total)
+
+  // Step 1: Fetch produk untuk dapat jenis_pewarna & motif_id
+  const { data: produk, error: produkError } = await supabaseAdmin
     .from('produk')
     .select('id, jenis_pewarna, motif_id')
     .eq('id', body.produk_id)
     .single()
 
-  if (produkErr || !produk) return notFoundResponse('Produk tidak ditemukan')
-
-  // ===== Auto-fill harga_per_meter kalau tidak diisi =====
-  let hargaPerMeter = body.harga_per_meter
-  if (hargaPerMeter === undefined || hargaPerMeter === null) {
-    // Lookup dari daftar_harga: priority motif spesifik > umum
-    const { data: hargaSpecific } = await supabaseAdmin
-      .from('daftar_harga')
-      .select('harga_per_meter')
-      .eq('jenis_pewarna', produk.jenis_pewarna)
-      .eq('motif_id', produk.motif_id)
-      .eq('lebar', body.lebar)
-      .maybeSingle()
-
-    if (hargaSpecific) {
-      hargaPerMeter = Number(hargaSpecific.harga_per_meter)
-    } else {
-      // Fallback ke harga umum (motif_id NULL)
-      const { data: hargaGeneral } = await supabaseAdmin
-        .from('daftar_harga')
-        .select('harga_per_meter')
-        .eq('jenis_pewarna', produk.jenis_pewarna)
-        .is('motif_id', null)
-        .eq('lebar', body.lebar)
-        .maybeSingle()
-
-      if (hargaGeneral) {
-        hargaPerMeter = Number(hargaGeneral.harga_per_meter)
-      } else {
-        return errorResponse(
-          `Harga untuk ${produk.jenis_pewarna} ${body.lebar}cm belum diset di daftar_harga`,
-          400
-        )
-      }
-    }
+  if (produkError || !produk) {
+    return notFoundResponse('Produk tidak ditemukan')
   }
 
-  // ===== Auto-generate nomor_gulungan: max+1 untuk produk ini =====
-  const { data: maxRow } = await supabaseAdmin
+  // Step 2: Hitung nomor_gulungan = max(existing) + 1
+  const { data: maxGulungan } = await supabaseAdmin
     .from('gulungan')
     .select('nomor_gulungan')
     .eq('produk_id', body.produk_id)
@@ -189,29 +154,80 @@ export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
     .limit(1)
     .maybeSingle()
 
-  const nomorGulungan = (maxRow?.nomor_gulungan || 0) + 1
+  const nomorGulungan = (maxGulungan?.nomor_gulungan || 0) + 1
 
-  // ===== Insert =====
+  // Step 3: Resolve harga_per_meter
+  let hargaPerMeter
+  if (body.harga_per_meter !== undefined && body.harga_per_meter !== null) {
+    // User input manual
+    hargaPerMeter = parseFloat(body.harga_per_meter)
+    if (isNaN(hargaPerMeter) || hargaPerMeter < 0) {
+      return errorResponse('Harga per meter tidak valid', 400)
+    }
+  } else {
+    // Auto-lookup via DB function
+    const { data: hargaResult, error: hargaError } = await supabaseAdmin.rpc(
+      'get_harga_per_meter',
+      {
+        p_jenis_pewarna: produk.jenis_pewarna,
+        p_motif_id: produk.motif_id,
+        p_lebar: lebar,
+      }
+    )
+
+    if (hargaError) {
+      console.error('[gulungan POST] harga lookup error:', hargaError)
+      return errorResponse('Gagal lookup harga: ' + hargaError.message, 500)
+    }
+
+    hargaPerMeter = parseFloat(hargaResult) || 0
+
+    if (hargaPerMeter === 0) {
+      return errorResponse(
+        `Harga belum di-setup untuk pewarna ${produk.jenis_pewarna} lebar ${lebar}cm. Silakan setup di Daftar Harga atau input manual.`,
+        400
+      )
+    }
+  }
+
+  // Step 4: Insert gulungan
   const { data, error } = await supabaseAdmin
     .from('gulungan')
     .insert({
       produk_id: body.produk_id,
       nomor_gulungan: nomorGulungan,
-      lebar: body.lebar,
-      panjang_total: body.panjang_total,
-      panjang_sisa: body.panjang_total, // sama dengan panjang_total saat baru
+      lebar,
+      panjang_total: panjangTotal,
+      panjang_sisa: panjangTotal,
       harga_per_meter: hargaPerMeter,
       is_active: true,
     })
-    .select(`
-      *,
-      produk:produk_id(kode_produk, jenis_pewarna)
-    `)
+    .select(
+      `
+        id,
+        produk_id,
+        nomor_gulungan,
+        lebar,
+        panjang_total,
+        panjang_sisa,
+        harga_per_meter,
+        is_active,
+        created_at,
+        updated_at
+      `
+    )
     .single()
 
   if (error) {
-    return errorResponse('Gagal menyimpan gulungan: ' + error.message, 500)
+    console.error('[gulungan POST] error:', error)
+    if (error.code === '23505') {
+      return errorResponse(
+        'Nomor gulungan sudah ada untuk produk ini',
+        409
+      )
+    }
+    return errorResponse('Gagal membuat gulungan: ' + error.message, 500)
   }
 
-  return successResponse(data, 'Gulungan berhasil ditambahkan', 201)
+  return successResponse(data, 'Gulungan berhasil dibuat', 201)
 })

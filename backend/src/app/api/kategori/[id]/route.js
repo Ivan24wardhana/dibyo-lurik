@@ -1,116 +1,56 @@
-// =====================================================
-// /api/kategori/[id]
-// GET    - detail kategori (semua role)
-// PATCH  - update nama_kategori (kepala_produksi/owner)
-// DELETE - hapus jika tidak dipakai di produk
-//
-// Catatan: di schema v6, daftar_harga tidak FK ke kategori lagi
-// (struktur baru pakai jenis_pewarna + motif_id + lebar).
-// Jadi FK reference cukup ke tabel produk saja.
-// =====================================================
+// /api/kategori/[id]  — PATCH + DELETE
 
-import { withAuth, withAuthAndRole } from '@/lib/api-helper'
+import { withAuthAndRole } from '@/lib/api-helper'
 import {
   successResponse,
   errorResponse,
   notFoundResponse,
   conflictResponse,
 } from '@/lib/response-helper'
-import { PRODUCTION_ROLES } from '@/lib/role-helper'
-import { validate, safeParseBody, isValidUUID } from '@/lib/validation'
+import { safeParseBody } from '@/lib/validation'
 import { checkFKReferences, formatFKErrorMessage } from '@/lib/crud-helper'
+import { PRODUCTION_ROLES } from '@/lib/role-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
-const KATEGORI_FK_REFERENCES = [
-  { table: 'produk', column: 'kategori_id' },
-]
-
-// =====================================================
-// GET - detail
-// =====================================================
-export const GET = withAuth(async ({ params }) => {
-  const { id } = params
-  if (!isValidUUID(id)) return errorResponse('ID tidak valid', 400)
-
-  const { data, error } = await supabaseAdmin
-    .from('kategori')
-    .select('*')
-    .eq('id', id)
-    .single()
-
-  if (error || !data) return notFoundResponse('Kategori tidak ditemukan')
-
-  return successResponse(data)
-})
-
-// =====================================================
-// PATCH - update
-// =====================================================
 export const PATCH = withAuthAndRole(PRODUCTION_ROLES, async ({ request, params }) => {
-  const { id } = params
-  if (!isValidUUID(id)) return errorResponse('ID tidak valid', 400)
+  const { id } = await params
+  if (!id) return errorResponse('ID wajib diisi', 400)
 
   const body = await safeParseBody(request)
-  if (!body) return errorResponse('Body request tidak valid', 400)
+  if (!body) return errorResponse('Body harus JSON valid', 400)
 
-  const errors = validate(body, {
-    nama_kategori: {
-      type: 'string',
-      required: true,
-      minLength: 2,
-      maxLength: 255,
-      label: 'Nama kategori',
-    },
-  })
-  if (errors.length) return errorResponse(errors[0], 400, { errors })
-
-  const namaBaru = body.nama_kategori.trim()
-
-  // Cek duplikat (selain dirinya sendiri)
-  const { data: duplicate } = await supabaseAdmin
-    .from('kategori')
-    .select('id')
-    .ilike('nama_kategori', namaBaru)
-    .neq('id', id)
-    .maybeSingle()
-
-  if (duplicate) return conflictResponse('Nama kategori sudah dipakai')
+  // Manual validation untuk string
+  const nama = body.nama?.toString().trim()
+  if (!nama) return errorResponse('Nama kategori wajib diisi', 400)
+  if (nama.length > 255) return errorResponse('Nama terlalu panjang', 400)
 
   const { data, error } = await supabaseAdmin
     .from('kategori')
-    .update({
-      nama_kategori: namaBaru,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ nama })
     .eq('id', id)
     .select()
     .single()
 
-  if (error) return errorResponse('Gagal update: ' + error.message, 500)
+  if (error) {
+    if (error.code === '23505') return conflictResponse('Nama kategori sudah ada')
+    return errorResponse('Gagal update: ' + error.message, 500)
+  }
   if (!data) return notFoundResponse('Kategori tidak ditemukan')
 
-  return successResponse(data, 'Kategori berhasil diperbarui')
+  return successResponse(data, 'Kategori berhasil diupdate')
 })
 
-// =====================================================
-// DELETE - dengan FK check
-// =====================================================
 export const DELETE = withAuthAndRole(PRODUCTION_ROLES, async ({ params }) => {
-  const { id } = params
-  if (!isValidUUID(id)) return errorResponse('ID tidak valid', 400)
+  const { id } = await params
+  if (!id) return errorResponse('ID wajib diisi', 400)
 
-  const fkCheck = await checkFKReferences(id, KATEGORI_FK_REFERENCES)
-  if (fkCheck.used) {
-    return conflictResponse(formatFKErrorMessage(fkCheck.usedIn))
-  }
+  const fkResult = await checkFKReferences(id, [
+    { table: 'produk', column: 'kategori_id', label: 'produk' },
+  ])
+  if (fkResult.used) return conflictResponse(formatFKErrorMessage(fkResult.usedIn))
 
-  const { error, count } = await supabaseAdmin
-    .from('kategori')
-    .delete({ count: 'exact' })
-    .eq('id', id)
-
-  if (error) return errorResponse('Gagal menghapus: ' + error.message, 500)
-  if (!count) return notFoundResponse('Kategori tidak ditemukan')
+  const { error } = await supabaseAdmin.from('kategori').delete().eq('id', id)
+  if (error) return errorResponse('Gagal hapus: ' + error.message, 500)
 
   return successResponse(null, 'Kategori berhasil dihapus')
 })

@@ -1,9 +1,11 @@
-import RekapGulunganPage from './RekapGulunganPage'
+// =====================================================
+// RekapGulungan70Page.jsx
+// Halaman rekap gulungan untuk lebar 70 cm.
+// Thin wrapper dari RekapGulunganView dengan prop lebar=70.
+// =====================================================
 
-/**
- * RekapGulungan70Page
- * Wrapper yang merender RekapGulunganPage dengan lebar 70cm.
- */
+import RekapGulunganView from '../../components/rekap/RekapGulunganView'
+
 export default function RekapGulungan70Page() {
-  return <RekapGulunganPage lebar={70} />
+  return <RekapGulunganView lebar={70} />
 }

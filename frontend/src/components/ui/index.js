@@ -1,34 +1,33 @@
 // =====================================================
-// index.js - Barrel Export untuk UI components
+// components/ui/index.js
+// Barrel export semua UI primitive components.
 //
-// Tujuan: import yang lebih clean.
-//
-// Sebelum:
-//   import Button from '@/components/ui/Button'
-//   import Input from '@/components/ui/Input'
-//   import Modal from '@/components/ui/Modal'
-//
-// Sesudah:
-//   import { Button, Input, Modal } from '@/components/ui'
-//
-// Note: ToastProvider & useToast diexport sebagai named export
-// karena dipakai untuk setup di App.jsx (bukan komponen biasa).
+// Pakai dengan named import:
+//   import { Button, Modal, useToast, SuccessPopup } from '@/components/ui'
 // =====================================================
 
-// Default exports → re-export sebagai named
-export { default as Badge } from './Badge'
+// Form & button
 export { default as Button } from './Button'
-export { default as Card } from './Card'
-export { default as ConfirmDialog } from './ConfirmDialog'
-export { default as EmptyState } from './EmptyState'
-export { default as FilterDropdown } from './FilterDropdown'
 export { default as Input } from './Input'
-export { default as Loading } from './Loading'
-export { default as Modal } from './Modal'
-export { default as Pagination } from './Pagination'
-export { default as SearchBar } from './SearchBar'
 export { default as Select } from './Select'
 export { default as Textarea } from './Textarea'
 
-// Toast: butuh provider + hook
+// Overlay / Modal
+export { default as Modal } from './Modal'
+export { default as ConfirmDialog } from './ConfirmDialog'
+export { default as SuccessPopup } from './SuccessPopup'
+
+// Loading & feedback
+export { default as Loading } from './Loading'
+// Toast: pakai named exports (TIDAK ada default export)
 export { ToastProvider, useToast } from './Toast'
+
+// Lists & navigation
+export { default as Pagination } from './Pagination'
+export { default as EmptyState } from './EmptyState'
+export { default as SearchBar } from './SearchBar'
+export { default as FilterDropdown } from './FilterDropdown'
+
+// Container
+export { default as Card } from './Card'
+export { default as Badge } from './Badge'

@@ -1,442 +1,314 @@
 // =====================================================
-// pdf-helper.js
-// Helper untuk generate PDF (struk & laporan) dengan pdfkit.
+// PATCH untuk pdf-helper.js
+// =====================================================
+// Tambahkan function ini ke file:
+// /backend/src/lib/pdf-helper.js
 //
-// Pattern: function-function di sini return Buffer (bytes PDF).
-// Endpoint tinggal kirim Buffer sebagai response dengan
-// Content-Type: application/pdf.
-// =====================================================
-
-import PDFDocument from 'pdfkit'
-
-// =====================================================
-// HELPER UMUM
+// Tambahkan import yang sudah ada di atas file (jangan duplikasi):
+// - PDFDocument dari pdfkit
+// - format helpers (formatRupiahShort, dll - lihat function existing)
+//
+// Lalu tambahkan function ini di bawah function lain, di atas baris export.
+// Pastikan juga export function ini di bagian export.
 // =====================================================
 
 /**
- * Format angka ke Rupiah Indonesia
- * Contoh: 50000 → "Rp 50.000,00"
+ * Generate PDF laporan rekap gulungan per rak.
+ * Format: A4 portrait, satu rak satu section dengan tabel di dalamnya.
+ *
+ * @param {Object} params
+ * @param {number} params.lebar - 70 atau 110
+ * @param {Array} params.groups - [{ rak_nama, items: [...], total }, ...]
+ * @param {number} params.totalAll - total panjang sisa keseluruhan
+ * @param {Date} params.generatedAt - waktu generate
+ * @returns {Promise<Buffer>} - PDF buffer
  */
-function formatRp(value) {
-  if (value == null || isNaN(value)) return 'Rp 0,00'
-  return (
-    'Rp ' +
-    new Intl.NumberFormat('id-ID', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Number(value))
-  )
+export async function generateLaporanRekapGulungan({
+  lebar,
+  groups,
+  totalAll,
+  generatedAt = new Date(),
+}) {
+  return new Promise((resolve, reject) => {
+    try {
+      const PDFDocument = require('pdfkit')
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 40,
+        info: {
+          Title: `Laporan Rekap Gulungan ${lebar}cm`,
+          Author: 'Dibyo Lurik',
+        },
+      })
+
+      const buffers = []
+      doc.on('data', buffers.push.bind(buffers))
+      doc.on('end', () => resolve(Buffer.concat(buffers)))
+      doc.on('error', reject)
+
+      // ===== Header =====
+      doc
+        .fillColor('#a47352')
+        .font('Helvetica-Bold')
+        .fontSize(20)
+        .text('DIBYO LURIK', { align: 'center' })
+
+      doc
+        .moveDown(0.2)
+        .font('Helvetica')
+        .fontSize(11)
+        .fillColor('#666666')
+        .text('Sistem Manajemen Toko Kain Lurik', { align: 'center' })
+
+      doc.moveDown(0.8)
+
+      // Garis horizontal
+      doc
+        .strokeColor('#a47352')
+        .lineWidth(1.5)
+        .moveTo(40, doc.y)
+        .lineTo(555, doc.y)
+        .stroke()
+
+      doc.moveDown(0.8)
+
+      // Title laporan
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(16)
+        .fillColor('#a47352')
+        .text(`Laporan Rekap Stok Gulungan - Lebar ${lebar} cm`, {
+          align: 'center',
+        })
+
+      doc.moveDown(0.3)
+
+      // Tanggal generate
+      const tanggalStr = formatTanggalLong(generatedAt)
+      doc
+        .font('Helvetica')
+        .fontSize(10)
+        .fillColor('#666666')
+        .text(`Dicetak pada: ${tanggalStr}`, { align: 'center' })
+
+      doc.moveDown(1)
+
+      // ===== Total Keseluruhan box =====
+      const totalBoxY = doc.y
+      doc
+        .roundedRect(40, totalBoxY, 515, 40, 6)
+        .fillAndStroke('#f5e6d8', '#a47352')
+
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(13)
+        .fillColor('#a47352')
+        .text(
+          `Total Keseluruhan: ${formatMeterPDF(totalAll)}`,
+          50,
+          totalBoxY + 13,
+          { width: 495, align: 'center' }
+        )
+
+      doc.y = totalBoxY + 50
+
+      // ===== Empty state =====
+      if (groups.length === 0) {
+        doc.moveDown(2)
+        doc
+          .font('Helvetica')
+          .fontSize(12)
+          .fillColor('#999999')
+          .text(`Belum ada gulungan dengan lebar ${lebar} cm`, {
+            align: 'center',
+          })
+        doc.end()
+        return
+      }
+
+      // ===== Render per Rak =====
+      groups.forEach((rak, idx) => {
+        // Cek apakah perlu page break (kira-kira tabel butuh 100px+ space)
+        if (doc.y > 700) {
+          doc.addPage()
+        }
+
+        // Section header per rak
+        doc
+          .moveDown(0.5)
+          .font('Helvetica-Bold')
+          .fontSize(14)
+          .fillColor('#a47352')
+          .text(`Rak ${rak.rak_nama}`, 40, doc.y)
+
+        doc.moveDown(0.3)
+
+        // ===== Tabel =====
+        const tableTop = doc.y
+        const tableLeft = 40
+        const tableWidth = 515
+
+        // Kolom (lebar dalam pt)
+        const cols = {
+          no: { x: tableLeft, w: 30, align: 'center' },
+          kode: { x: tableLeft + 30, w: 90, align: 'left' },
+          motif: { x: tableLeft + 120, w: 130, align: 'left' },
+          kategori: { x: tableLeft + 250, w: 110, align: 'left' },
+          pewarna: { x: tableLeft + 360, w: 70, align: 'center' },
+          sisa: { x: tableLeft + 430, w: 85, align: 'right' },
+        }
+
+        // Header row
+        const headerHeight = 22
+        doc
+          .rect(tableLeft, tableTop, tableWidth, headerHeight)
+          .fill('#a47352')
+
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(9)
+          .fillColor('#ffffff')
+
+        const headerY = tableTop + 7
+        doc.text('No.', cols.no.x, headerY, { width: cols.no.w, align: 'center' })
+        doc.text('Kode Produk', cols.kode.x + 5, headerY, { width: cols.kode.w - 10 })
+        doc.text('Motif', cols.motif.x + 5, headerY, { width: cols.motif.w - 10 })
+        doc.text('Kategori', cols.kategori.x + 5, headerY, { width: cols.kategori.w - 10 })
+        doc.text('Pewarna', cols.pewarna.x, headerY, { width: cols.pewarna.w, align: 'center' })
+        doc.text('Panjang Sisa', cols.sisa.x, headerY, { width: cols.sisa.w - 5, align: 'right' })
+
+        // Data rows
+        let currentY = tableTop + headerHeight
+        const rowHeight = 20
+
+        rak.items.forEach((g, rowIdx) => {
+          // Alternating row background
+          if (rowIdx % 2 === 0) {
+            doc
+              .rect(tableLeft, currentY, tableWidth, rowHeight)
+              .fill('#fdfaf6')
+          }
+
+          // Border bottom row
+          doc
+            .strokeColor('#e3c2ac')
+            .lineWidth(0.5)
+            .moveTo(tableLeft, currentY + rowHeight)
+            .lineTo(tableLeft + tableWidth, currentY + rowHeight)
+            .stroke()
+
+          const rowY = currentY + 6
+          doc
+            .font('Helvetica')
+            .fontSize(9)
+            .fillColor('#333333')
+
+          // No
+          doc.text(String(rowIdx + 1), cols.no.x, rowY, {
+            width: cols.no.w,
+            align: 'center',
+          })
+
+          // Kode produk
+          const kode = g.produk?.kode_produk || '-'
+          doc.text(kode, cols.kode.x + 5, rowY, {
+            width: cols.kode.w - 10,
+            ellipsis: true,
+          })
+
+          // Motif
+          const motif = g.produk?.motif?.nama || '-'
+          doc.text(motif, cols.motif.x + 5, rowY, {
+            width: cols.motif.w - 10,
+            ellipsis: true,
+          })
+
+          // Kategori
+          const kategori = g.produk?.kategori?.nama || '-'
+          doc.text(kategori, cols.kategori.x + 5, rowY, {
+            width: cols.kategori.w - 10,
+            ellipsis: true,
+          })
+
+          // Pewarna
+          const pewarna = g.produk?.jenis_pewarna === 'sintetis' ? 'Sintetis' : 'Alami'
+          doc.text(pewarna, cols.pewarna.x, rowY, {
+            width: cols.pewarna.w,
+            align: 'center',
+          })
+
+          // Panjang sisa
+          doc.text(formatMeterPDF(g.panjang_sisa), cols.sisa.x, rowY, {
+            width: cols.sisa.w - 5,
+            align: 'right',
+          })
+
+          currentY += rowHeight
+
+          // Page break check
+          if (currentY > 740) {
+            doc.addPage()
+            currentY = 50
+          }
+        })
+
+        // Outer border tabel
+        doc
+          .strokeColor('#a47352')
+          .lineWidth(1)
+          .rect(tableLeft, tableTop, tableWidth, currentY - tableTop)
+          .stroke()
+
+        // Total per rak
+        doc.y = currentY + 5
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(10)
+          .fillColor('#a47352')
+          .text(
+            `Total Rak ${rak.rak_nama}: ${formatMeterPDF(rak.total)}`,
+            tableLeft,
+            doc.y,
+            { width: tableWidth, align: 'right' }
+          )
+
+        doc.moveDown(1)
+      })
+
+      // ===== Footer =====
+      doc.moveDown(2)
+      doc
+        .font('Helvetica-Oblique')
+        .fontSize(8)
+        .fillColor('#999999')
+        .text('— Akhir Laporan —', { align: 'center' })
+
+      doc.end()
+    } catch (err) {
+      reject(err)
+    }
+  })
 }
 
-/**
- * Format tanggal ke Indonesia: "28 April 2026, 14:30"
- */
-function formatDateID(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (isNaN(date.getTime())) return '-'
+// =====================================================
+// HELPER (private) — kalau belum ada di pdf-helper.js
+// Kalau sudah ada formatTanggalLong & formatMeterPDF di file ini,
+// HAPUS bagian di bawah ini dan pakai yang sudah ada.
+// =====================================================
 
+function formatTanggalLong(date) {
+  const d = date instanceof Date ? date : new Date(date)
   const months = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
   ]
-
-  const dd = String(date.getDate()).padStart(2, '0')
-  const mm = months[date.getMonth()]
-  const yyyy = date.getFullYear()
-  const hh = String(date.getHours()).padStart(2, '0')
-  const mn = String(date.getMinutes()).padStart(2, '0')
-
-  return `${dd} ${mm} ${yyyy}, ${hh}:${mn}`
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
 }
 
-/**
- * Format tanggal singkat: "28-04-2026"
- */
-function formatDateShort(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (isNaN(date.getTime())) return '-'
-
-  const dd = String(date.getDate()).padStart(2, '0')
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const yyyy = date.getFullYear()
-  return `${dd}-${mm}-${yyyy}`
+function formatMeterPDF(value) {
+  const num = Number(value || 0)
+  return `${num.toLocaleString('id-ID', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} m`
 }
-
-/**
- * Konversi PDFDocument ke Buffer
- * pdfkit pakai stream — perlu wrap dengan Promise supaya bisa await
- */
-function pdfToBuffer(doc) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    doc.on('data', (chunk) => chunks.push(chunk))
-    doc.on('end', () => resolve(Buffer.concat(chunks)))
-    doc.on('error', reject)
-    doc.end()
-  })
-}
-
-// =====================================================
-// 1. STRUK ORDER
-// =====================================================
-/**
- * Generate PDF struk untuk 1 order
- *
- * Layout:
- *   ┌────────────────────────────────┐
- *   │       DIBYO LURIK              │  (header)
- *   │  Toko Kain Lurik Tradisional   │
- *   │      ─────────────────         │
- *   │  No: ORD-20260428-001          │  (info order)
- *   │  Tgl: 28 April 2026, 14:30     │
- *   │  Kasir: cs                     │
- *   │      ─────────────────         │
- *   │  Item             Qty  Subtotal│  (items)
- *   │  Lurik 110cm      5m   287.500 │
- *   │  Selendang 70cm   3m   115.500 │
- *   │      ─────────────────         │
- *   │  Subtotal:           403.000   │
- *   │  Diskon (10%):       (40.300)  │
- *   │  Total:              362.700   │
- *   │      ─────────────────         │
- *   │  Metode: Cash                  │
- *   │      ─────────────────         │
- *   │  Terima kasih atas kunjungan!  │
- *   └────────────────────────────────┘
- *
- * @param {object} order - Data order lengkap (header + items + relasi)
- * @returns {Promise<Buffer>}
- */
-export async function generateStrukPDF(order) {
-  // Ukuran struk thermal 80mm = ~226 points (1mm = 2.83pt)
-  // Pakai size custom supaya kelihatan kayak struk asli
-  const doc = new PDFDocument({
-    size: [226, 600], // width 80mm, height auto-extend
-    margins: { top: 10, bottom: 10, left: 10, right: 10 },
-  })
-
-  // ===== Header =====
-  doc.fontSize(14).font('Helvetica-Bold').text('DIBYO LURIK', { align: 'center' })
-  doc.fontSize(8).font('Helvetica').text('Toko Kain Lurik Tradisional', { align: 'center' })
-  doc.moveDown(0.5)
-  doc.text('────────────────────────', { align: 'center' })
-  doc.moveDown(0.3)
-
-  // ===== Info Order =====
-  doc.fontSize(8).font('Helvetica')
-  doc.text(`No: ${order.nomor_order || '-'}`)
-  doc.text(`Tgl: ${formatDateID(order.tanggal_order)}`)
-  doc.text(`Kasir: ${order.kasir?.username || order.kasir?.nama || '-'}`)
-  doc.moveDown(0.3)
-  doc.text('────────────────────────', { align: 'center' })
-  doc.moveDown(0.3)
-
-  // ===== Items =====
-  // Header tabel sederhana
-  doc.font('Helvetica-Bold').fontSize(8)
-  const colItem = 10
-  const colQty = 130
-  const colSubtotal = 165
-
-  doc.text('Item', colItem, doc.y, { continued: false })
-  // Karena pdfkit text positioning agak tricky, kita pakai pendekatan list
-
-  doc.font('Helvetica').fontSize(7)
-
-  const items = order.items || []
-  for (const item of items) {
-    const produkInfo = item.gulungan?.produk || {}
-    const motif = produkInfo.motif?.nama_motif || '-'
-    const kode = produkInfo.kode_produk || '-'
-    const lebar = item.gulungan?.lebar || '-'
-    const qty = `${Number(item.jumlah_order)}m`
-    const subtotal = formatRp(item.subtotal)
-
-    // Baris 1: nama item
-    doc.text(`${motif} (${kode})`, { continued: false })
-    // Baris 2: detail qty + subtotal
-    doc.text(`  ${lebar}cm x ${qty}`, { continued: true })
-    doc.text(`  ${subtotal}`, { align: 'right' })
-    doc.moveDown(0.2)
-  }
-
-  doc.moveDown(0.3)
-  doc.text('────────────────────────', { align: 'center' })
-  doc.moveDown(0.3)
-
-  // ===== Total =====
-  // Hitung subtotal dari items (sebelum diskon)
-  const subtotalAll = items.reduce(
-    (sum, i) => sum + Number(i.subtotal || 0),
-    0
-  )
-  const diskon = Number(order.diskon || 0)
-  const diskonAmount = (subtotalAll * diskon) / 100
-  const total = subtotalAll - diskonAmount
-
-  doc.font('Helvetica').fontSize(8)
-  doc.text(`Subtotal:`, { continued: true })
-  doc.text(`  ${formatRp(subtotalAll)}`, { align: 'right' })
-
-  if (diskon > 0) {
-    doc.text(`Diskon (${diskon}%):`, { continued: true })
-    doc.text(`  -${formatRp(diskonAmount)}`, { align: 'right' })
-  }
-
-  doc.font('Helvetica-Bold')
-  doc.text(`TOTAL:`, { continued: true })
-  doc.text(`  ${formatRp(total)}`, { align: 'right' })
-  doc.moveDown(0.3)
-
-  doc.font('Helvetica').fontSize(8)
-  doc.text('────────────────────────', { align: 'center' })
-  doc.text(`Metode: ${(order.metode_pembayaran || 'cash').toUpperCase()}`)
-  doc.moveDown(0.3)
-  doc.text('────────────────────────', { align: 'center' })
-  doc.moveDown(0.3)
-
-  // ===== Footer =====
-  doc.font('Helvetica-Oblique').fontSize(8)
-  doc.text('Terima kasih atas kunjungan Anda!', { align: 'center' })
-  doc.moveDown(0.2)
-  doc.text('Barang yang sudah dibeli tidak', { align: 'center' })
-  doc.text('dapat ditukar/dikembalikan.', { align: 'center' })
-
-  return pdfToBuffer(doc)
-}
-
-// =====================================================
-// 2. LAPORAN ORDER (A4)
-// =====================================================
-/**
- * Generate PDF laporan list order (A4 portrait, dengan tabel)
- */
-export async function generateLaporanOrders(orders, options = {}) {
-  const doc = new PDFDocument({ size: 'A4', margin: 40 })
-
-  // ===== Header =====
-  doc.fontSize(18).font('Helvetica-Bold').text('LAPORAN ORDER', { align: 'center' })
-  doc.fontSize(10).font('Helvetica').text('Dibyo Lurik - Toko Kain Lurik', { align: 'center' })
-
-  if (options.dateRange) {
-    doc.fontSize(9).text(`Periode: ${options.dateRange}`, { align: 'center' })
-  }
-  doc.text(`Generated: ${formatDateID(new Date())}`, { align: 'center' })
-  doc.moveDown(1)
-
-  // ===== Tabel =====
-  doc.fontSize(10).font('Helvetica-Bold')
-
-  const startX = 40
-  const startY = doc.y
-  const colWidths = [25, 110, 90, 60, 70, 90, 70] // No, No.Order, Tanggal, Items, Diskon, Total, Bayar
-  const headers = ['No', 'No. Order', 'Tanggal', 'Item', 'Diskon', 'Total', 'Bayar']
-
-  // Draw header row
-  doc.rect(startX, startY, colWidths.reduce((a, b) => a + b, 0), 20).fillAndStroke('#a47352', '#a47352')
-  doc.fillColor('white')
-
-  let xPos = startX
-  for (let i = 0; i < headers.length; i++) {
-    doc.text(headers[i], xPos + 4, startY + 6, { width: colWidths[i] - 8, align: 'left' })
-    xPos += colWidths[i]
-  }
-
-  doc.fillColor('black').font('Helvetica').fontSize(9)
-
-  let yPos = startY + 22
-  let totalSemua = 0
-
-  orders.forEach((order, idx) => {
-    // New page kalau hampir mentok
-    if (yPos > 750) {
-      doc.addPage()
-      yPos = 40
-    }
-
-    const itemCount = order.items?.length || 0
-    const total = Number(order.total_harga || 0)
-    totalSemua += total
-
-    const row = [
-      String(idx + 1),
-      order.nomor_order || '-',
-      formatDateShort(order.tanggal_order),
-      `${itemCount} item`,
-      `${Number(order.diskon || 0)}%`,
-      formatRp(total),
-      (order.metode_pembayaran || '-').toUpperCase(),
-    ]
-
-    let xRow = startX
-    for (let i = 0; i < row.length; i++) {
-      doc.text(row[i], xRow + 4, yPos + 4, { width: colWidths[i] - 8, align: 'left' })
-      xRow += colWidths[i]
-    }
-
-    // Garis bawah row
-    doc.moveTo(startX, yPos + 18).lineTo(startX + colWidths.reduce((a, b) => a + b, 0), yPos + 18)
-      .strokeColor('#cccccc').stroke().strokeColor('black')
-
-    yPos += 20
-  })
-
-  // ===== Total =====
-  doc.moveDown(2)
-  doc.fontSize(11).font('Helvetica-Bold')
-  doc.text(`Total Order: ${orders.length}`, startX, yPos + 20)
-  doc.text(`Total Pendapatan: ${formatRp(totalSemua)}`, startX, yPos + 35)
-
-  return pdfToBuffer(doc)
-}
-
-// =====================================================
-// 3. LAPORAN PRE-ORDER REGULER
-// =====================================================
-export async function generateLaporanPOReguler(poList, options = {}) {
-  const doc = new PDFDocument({ size: 'A4', margin: 40 })
-
-  doc.fontSize(18).font('Helvetica-Bold').text('LAPORAN PRE-ORDER REGULER', { align: 'center' })
-  doc.fontSize(10).font('Helvetica').text('Dibyo Lurik - Toko Kain Lurik', { align: 'center' })
-  if (options.dateRange) {
-    doc.fontSize(9).text(`Periode: ${options.dateRange}`, { align: 'center' })
-  }
-  doc.text(`Generated: ${formatDateID(new Date())}`, { align: 'center' })
-  doc.moveDown(1)
-
-  doc.fontSize(10).font('Helvetica-Bold')
-
-  const startX = 40
-  let yPos = doc.y
-  const colWidths = [25, 90, 100, 60, 75, 80, 85] // No, No.PO, Customer, Status, Pembayaran, Total, Tanggal
-  const headers = ['No', 'No. PO', 'Customer', 'Status', 'Pembayaran', 'Total', 'Tanggal']
-
-  doc.rect(startX, yPos, colWidths.reduce((a, b) => a + b, 0), 20).fillAndStroke('#a47352', '#a47352')
-  doc.fillColor('white')
-
-  let xPos = startX
-  for (let i = 0; i < headers.length; i++) {
-    doc.text(headers[i], xPos + 4, yPos + 6, { width: colWidths[i] - 8 })
-    xPos += colWidths[i]
-  }
-
-  doc.fillColor('black').font('Helvetica').fontSize(8)
-  yPos += 22
-  let totalSemua = 0
-
-  poList.forEach((po, idx) => {
-    if (yPos > 750) {
-      doc.addPage()
-      yPos = 40
-    }
-
-    const total = Number(po.total_harga || 0)
-    totalSemua += total
-
-    const row = [
-      String(idx + 1),
-      po.nomor_po || '-',
-      po.nama_customer || '-',
-      (po.status || '-').replace('_', ' '),
-      (po.status_pembayaran || '-').toUpperCase(),
-      formatRp(total),
-      formatDateShort(po.created_at),
-    ]
-
-    let xRow = startX
-    for (let i = 0; i < row.length; i++) {
-      doc.text(row[i], xRow + 4, yPos + 4, { width: colWidths[i] - 8 })
-      xRow += colWidths[i]
-    }
-
-    doc.moveTo(startX, yPos + 18).lineTo(startX + colWidths.reduce((a, b) => a + b, 0), yPos + 18)
-      .strokeColor('#cccccc').stroke().strokeColor('black')
-
-    yPos += 20
-  })
-
-  doc.moveDown(2)
-  doc.fontSize(11).font('Helvetica-Bold')
-  doc.text(`Total PO Reguler: ${poList.length}`, startX, yPos + 20)
-  doc.text(`Total Nilai: ${formatRp(totalSemua)}`, startX, yPos + 35)
-
-  return pdfToBuffer(doc)
-}
-
-// =====================================================
-// 4. LAPORAN PRE-ORDER CUSTOM
-// =====================================================
-export async function generateLaporanPOCustom(poList, options = {}) {
-  const doc = new PDFDocument({ size: 'A4', margin: 40 })
-
-  doc.fontSize(18).font('Helvetica-Bold').text('LAPORAN PRE-ORDER CUSTOM', { align: 'center' })
-  doc.fontSize(10).font('Helvetica').text('Dibyo Lurik - Toko Kain Lurik', { align: 'center' })
-  if (options.dateRange) {
-    doc.fontSize(9).text(`Periode: ${options.dateRange}`, { align: 'center' })
-  }
-  doc.text(`Generated: ${formatDateID(new Date())}`, { align: 'center' })
-  doc.moveDown(1)
-
-  doc.fontSize(10).font('Helvetica-Bold')
-
-  const startX = 40
-  let yPos = doc.y
-  const colWidths = [25, 90, 100, 60, 75, 80, 85]
-  const headers = ['No', 'No. PO', 'Customer', 'Status', 'Pembayaran', 'Total', 'Tanggal']
-
-  doc.rect(startX, yPos, colWidths.reduce((a, b) => a + b, 0), 20).fillAndStroke('#a47352', '#a47352')
-  doc.fillColor('white')
-
-  let xPos = startX
-  for (let i = 0; i < headers.length; i++) {
-    doc.text(headers[i], xPos + 4, yPos + 6, { width: colWidths[i] - 8 })
-    xPos += colWidths[i]
-  }
-
-  doc.fillColor('black').font('Helvetica').fontSize(8)
-  yPos += 22
-  let totalSemua = 0
-
-  poList.forEach((po, idx) => {
-    if (yPos > 750) {
-      doc.addPage()
-      yPos = 40
-    }
-
-    const total = Number(po.total_harga || 0)
-    totalSemua += total
-
-    const row = [
-      String(idx + 1),
-      po.nomor_po || '-',
-      po.nama_customer || '-',
-      (po.status || '-').replace('_', ' '),
-      (po.status_pembayaran || '-').toUpperCase(),
-      formatRp(total),
-      formatDateShort(po.created_at),
-    ]
-
-    let xRow = startX
-    for (let i = 0; i < row.length; i++) {
-      doc.text(row[i], xRow + 4, yPos + 4, { width: colWidths[i] - 8 })
-      xRow += colWidths[i]
-    }
-
-    doc.moveTo(startX, yPos + 18).lineTo(startX + colWidths.reduce((a, b) => a + b, 0), yPos + 18)
-      .strokeColor('#cccccc').stroke().strokeColor('black')
-
-    yPos += 20
-  })
-
-  doc.moveDown(2)
-  doc.fontSize(11).font('Helvetica-Bold')
-  doc.text(`Total PO Custom: ${poList.length}`, startX, yPos + 20)
-  doc.text(`Total Nilai: ${formatRp(totalSemua)}`, startX, yPos + 35)
-
-  return pdfToBuffer(doc)
-}
-
-// Export helpers untuk dipakai di endpoint
-export { formatRp, formatDateID, formatDateShort, pdfToBuffer }

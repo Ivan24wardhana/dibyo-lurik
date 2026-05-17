@@ -1,45 +1,55 @@
 // =====================================================
 // /api/orders/[id]/struk
-// GET - generate & return PDF struk untuk 1 order
+// GET - data order lengkap untuk render struk di frontend
 //
-// Response: file PDF (binary) dengan Content-Type: application/pdf
-// Content-Disposition: inline supaya browser preview di tab baru
-// (atau download kalau frontend handle).
+// Frontend (StrukPage.jsx) handle render + window.print().
+// Backend hanya return JSON data lengkap order + items + produk.
 //
-// Cara pakai dari frontend:
-//   const url = `/api/orders/${id}/struk`
-//   window.open(url, '_blank')  // buka di tab baru
-//   // atau:
-//   const blob = await api.get(url, { responseType: 'blob' })
-//   downloadBlob(blob, `struk-${nomorOrder}.pdf`)
+// Toko thermal printer = lebih cepat & murah pakai print
+// browser native daripada generate PDF di backend.
 // =====================================================
 
 import { withAuth } from '@/lib/api-helper'
 import {
+  successResponse,
   errorResponse,
   notFoundResponse,
 } from '@/lib/response-helper'
 import { isValidUUID } from '@/lib/validation'
-import { generateStrukPDF } from '@/lib/pdf-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 export const GET = withAuth(async ({ params }) => {
-  const { id } = params
-  if (!isValidUUID(id)) return errorResponse('ID tidak valid', 400)
+  // Next.js 16 - params must be awaited
+  const { id } = await params
+  if (!isValidUUID(id)) return errorResponse('ID order tidak valid', 400)
 
-  // Ambil data order lengkap
-  const { data: order, error } = await supabaseAdmin
+  // Fetch order lengkap dengan items + gulungan + produk + master
+  const { data, error } = await supabaseAdmin
     .from('orders')
     .select(`
-      *,
+      id,
+      nomor_order,
+      tanggal_order,
+      metode_pembayaran,
+      diskon,
+      total_harga,
+      created_at,
       kasir:user_id(id, username, nama),
       items:item_order(
-        id, jumlah_order, harga_per_meter, subtotal,
+        id,
+        jumlah_order,
+        harga_per_meter,
+        subtotal,
         gulungan:gulungan_id(
-          id, lebar,
+          id,
+          nomor_gulungan,
+          lebar,
           produk:produk_id(
+            id,
             kode_produk,
-            motif:motif_id(nama_motif)
+            jenis_pewarna,
+            motif:motif_id(nama),
+            kategori:kategori_id(nama)
           )
         )
       )
@@ -47,23 +57,9 @@ export const GET = withAuth(async ({ params }) => {
     .eq('id', id)
     .single()
 
-  if (error || !order) return notFoundResponse('Order tidak ditemukan')
-
-  try {
-    // Generate PDF buffer
-    const pdfBuffer = await generateStrukPDF(order)
-
-    // Return sebagai PDF response
-    return new Response(pdfBuffer, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="struk-${order.nomor_order}.pdf"`,
-        'Cache-Control': 'no-cache',
-      },
-    })
-  } catch (err) {
-    console.error('[Struk PDF] error:', err)
-    return errorResponse('Gagal generate struk PDF: ' + err.message, 500)
+  if (error || !data) {
+    return notFoundResponse('Order tidak ditemukan')
   }
+
+  return successResponse(data)
 })

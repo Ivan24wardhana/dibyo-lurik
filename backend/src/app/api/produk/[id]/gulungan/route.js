@@ -2,8 +2,7 @@
 // /api/produk/[id]/gulungan
 // GET - list gulungan untuk produk tertentu
 //
-// Convenience endpoint: alternatif untuk
-//   GET /api/gulungan?produk_id=<id>
+// Fix: Next.js 16 — params adalah Promise, harus di-await.
 // =====================================================
 
 import { withAuth } from '@/lib/api-helper'
@@ -16,7 +15,8 @@ import { isValidUUID } from '@/lib/validation'
 import supabaseAdmin from '@/lib/supabase-admin'
 
 export const GET = withAuth(async ({ params }) => {
-  const { id } = params
+  // ⚠️ Next.js 16: params is async, must be awaited
+  const { id } = await params
   if (!isValidUUID(id)) return errorResponse('ID produk tidak valid', 400)
 
   // Cek produk exists

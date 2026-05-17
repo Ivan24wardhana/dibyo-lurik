@@ -2,6 +2,13 @@
 // formatters.js
 // Helper untuk format data ke string yang user-friendly.
 // Semua format pakai locale Indonesia (id-ID).
+//
+// KONVENSI NAMING:
+//   - Nama BARU (recommended): formatTanggalID, formatRupiah, dll
+//   - Nama LAMA (alias backward-compat): formatTanggal, formatHarga, dll
+//
+// Untuk kode baru, pakai nama BARU. Nama LAMA tetap di-export
+// supaya file existing tidak break.
 // =====================================================
 
 import {
@@ -56,8 +63,7 @@ export function formatNumberID(value) {
 
 /**
  * Format meter (untuk panjang kain).
- * 30 → "30 m"
- * 30.5 → "30,5 m"
+ * 30 → "30 m" | 30.5 → "30,5 m"
  */
 export function formatMeter(value) {
   if (value == null || value === '-') return '-'
@@ -119,7 +125,6 @@ export function formatDateTimeID(value) {
 
 /**
  * Format relative time: "5 menit yang lalu", "2 jam yang lalu", dll
- * Berguna untuk activity feed / notifikasi.
  */
 export function formatRelativeTime(value) {
   if (!value) return '-'
@@ -138,6 +143,19 @@ export function formatRelativeTime(value) {
   if (hours < 24) return `${hours} jam yang lalu`
   if (days < 7) return `${days} hari yang lalu`
   return formatTanggalID(date)
+}
+
+/**
+ * Format jam saja: "14:30"
+ */
+export function formatJam(value) {
+  if (!value) return '-'
+  const date = value instanceof Date ? value : new Date(value)
+  if (isNaN(date.getTime())) return '-'
+
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mn = String(date.getMinutes()).padStart(2, '0')
+  return `${hh}:${mn}`
 }
 
 // =====================================================
@@ -216,11 +234,39 @@ export function capitalize(text) {
 }
 
 /**
- * Format persen
- * 10 → "10%"
- * 0 → "0%"
+ * Format persen: 10 → "10%" | 0 → "0%"
  */
 export function formatPersen(value) {
   if (value == null || isNaN(value)) return '0%'
   return `${Number(value)}%`
 }
+
+// =====================================================
+// BACKWARD COMPATIBILITY ALIASES
+// =====================================================
+// Untuk file existing yang import nama lama.
+// Alias ini sengaja didefinisikan terakhir setelah function utama.
+//
+// Untuk kode BARU, pakai nama lengkap (formatTanggalID, formatRupiah).
+// Aliases di bawah cuma supaya file lama tidak break.
+// =====================================================
+
+// Date aliases
+export const formatTanggal = formatTanggalID
+export const formatTanggalLengkap = formatTanggalLong
+export const formatTanggalWaktu = formatDateTimeID
+export const formatDate = formatTanggalID
+export const formatDateLong = formatTanggalLong
+export const formatDateTime = formatDateTimeID
+
+// Currency aliases
+export const formatHarga = formatRupiah
+export const formatHargaShort = formatRupiahShort
+export const formatCurrency = formatRupiah
+export const formatNumber = formatNumberID
+
+// Status aliases
+export const formatStatus = formatStatusOrder
+export const formatPembayaran = formatStatusPembayaran
+export const formatMetode = formatMetodePembayaran
+export const formatPewarna = formatJenisPewarna

@@ -1,8 +1,4 @@
-﻿// =====================================================
-// /api/kategori
-// GET  - list kategori dengan pagination (semua role)
-// POST - tambah kategori baru (kepala_produksi/owner)
-// =====================================================
+﻿// /api/kategori — GET list + POST create
 
 import { withAuth, withAuthAndRole } from '@/lib/api-helper'
 import {
@@ -10,77 +6,55 @@ import {
   errorResponse,
   conflictResponse,
 } from '@/lib/response-helper'
+import { safeParseBody } from '@/lib/validation'
+import {
+  parsePagination,
+  parseSearch,
+  buildPaginatedData,
+} from '@/lib/crud-helper'
 import { PRODUCTION_ROLES } from '@/lib/role-helper'
-import { validate, safeParseBody } from '@/lib/validation'
-import { parsePagination, buildPaginatedData } from '@/lib/crud-helper'
 import supabaseAdmin from '@/lib/supabase-admin'
 
-// =====================================================
-// GET - list kategori
-// =====================================================
 export const GET = withAuth(async ({ request }) => {
   const pagination = parsePagination(request)
+  const search = parseSearch(request)
 
-  const [countResult, dataResult] = await Promise.all([
-    supabaseAdmin
-      .from('kategori')
-      .select('*', { count: 'exact', head: true }),
-    supabaseAdmin
-      .from('kategori')
-      .select('id, nama_kategori, created_at, updated_at')
-      .order('nama_kategori', { ascending: true })
-      .range(pagination.offset, pagination.offset + pagination.limit - 1),
-  ])
+  let query = supabaseAdmin
+    .from('kategori')
+    .select('id, nama, created_at', { count: 'exact' })
+    .order('nama', { ascending: true })
 
-  if (dataResult.error) {
-    return errorResponse('Gagal memuat data kategori', 500)
-  }
+  if (search) query = query.ilike('nama', `%${search}%`)
 
-  return successResponse(
-    buildPaginatedData(dataResult.data || [], countResult.count || 0, pagination)
+  const { data, count, error } = await query.range(
+    pagination.offset,
+    pagination.offset + pagination.limit - 1
   )
+
+  if (error) return errorResponse('Gagal memuat kategori: ' + error.message, 500)
+
+  return successResponse(buildPaginatedData(data || [], count || 0, pagination))
 })
 
-// =====================================================
-// POST - tambah kategori
-// =====================================================
 export const POST = withAuthAndRole(PRODUCTION_ROLES, async ({ request }) => {
   const body = await safeParseBody(request)
-  if (!body) return errorResponse('Body request tidak valid', 400)
+  if (!body) return errorResponse('Body harus JSON valid', 400)
 
-  const errors = validate(body, {
-    nama_kategori: {
-      type: 'string',
-      required: true,
-      minLength: 2,
-      maxLength: 255,
-      label: 'Nama kategori',
-    },
-  })
-  if (errors.length) return errorResponse(errors[0], 400, { errors })
-
-  const namaKategori = body.nama_kategori.trim()
-
-  // Cek duplikat (case-insensitive)
-  const { data: existing } = await supabaseAdmin
-    .from('kategori')
-    .select('id')
-    .ilike('nama_kategori', namaKategori)
-    .maybeSingle()
-
-  if (existing) {
-    return conflictResponse('Nama kategori sudah ada')
-  }
+  // Manual validation - validate() tidak support type string
+  const nama = body.nama?.toString().trim()
+  if (!nama) return errorResponse('Nama kategori wajib diisi', 400)
+  if (nama.length > 255) return errorResponse('Nama terlalu panjang (maks 255 karakter)', 400)
 
   const { data, error } = await supabaseAdmin
     .from('kategori')
-    .insert({ nama_kategori: namaKategori })
+    .insert({ nama })
     .select()
     .single()
 
   if (error) {
-    return errorResponse('Gagal menyimpan kategori: ' + error.message, 500)
+    if (error.code === '23505') return conflictResponse('Nama kategori sudah ada')
+    return errorResponse('Gagal membuat kategori: ' + error.message, 500)
   }
 
-  return successResponse(data, 'Kategori berhasil ditambahkan', 201)
+  return successResponse(data, 'Kategori berhasil dibuat', 201)
 })

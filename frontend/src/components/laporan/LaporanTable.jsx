@@ -1,5 +1,6 @@
 import Badge from '../ui/Badge'
-import { formatRupiah, formatTanggalPendek } from '../../lib/formatters'
+// Mengubah formatTanggalPendek menjadi formatTanggalID sesuai formatters.js
+import { formatRupiah, formatTanggalID } from '../../lib/formatters'
 
 /**
  * LaporanTable
@@ -54,7 +55,8 @@ export default function LaporanTable({ data, onLihat, jenis }) {
                       <p className="text-xs text-[#a47352]/70">{item.nomor_order || item.nomor_po || '—'}</p>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-[#4a260f]">{formatTanggalPendek(item.tanggal_order || item.created_at)}</td>
+                  {/* Menggunakan formatTanggalID sesuai yang ada di formatters.js */}
+                  <td className="px-3 py-3 text-[#4a260f]">{formatTanggalID(item.tanggal_order || item.created_at)}</td>
                   <td className="px-3 py-3 text-center text-[#4a260f]">{item.jumlah_kain || item.items_count || 0}</td>
                   <td className="px-3 py-3 text-right font-semibold text-[#8b5e3c]">{formatRupiah(item.total_harga || 0)}</td>
                   {jenis !== 'order' && (
@@ -71,7 +73,7 @@ export default function LaporanTable({ data, onLihat, jenis }) {
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#a47352] text-white text-xs font-semibold hover:bg-[#8b5e3c] transition-colors"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" strokeWidth="2" />
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8" stroke="currentColor" strokeWidth="2" />
                         <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
                       </svg>
                       Lihat
